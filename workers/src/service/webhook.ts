@@ -6,15 +6,11 @@ import { ReplaceValue } from "../utils/rule"
 
 const webhook = new Hono<apiVar>()
 
-webhook.get("/:hook_type", async (c) => {
+webhook.post("/:hook_type", async (c) => {
   const repo = c.get("repo")
   const hook_type = c.req.param("hook_type") || ""
 
   if (hook_type === "github-release") {
-    if (c.req.method !== "POST") {
-      return c.text("", 405)
-    }
-
     const secret = repo.webhook?.secret || ""
     if (!secret) {
       return c.text("", 500)
