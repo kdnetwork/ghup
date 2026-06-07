@@ -5,19 +5,19 @@ export async function VerifySignature(
   signature256: string,
   rawBody: string,
 ): Promise<boolean> {
-  let parts = signature256.split("=")
+  let parts = signature256.split('=')
   let sigHex = parts[1]
 
-  let algorithm = { name: "HMAC", hash: { name: "SHA-256" } }
+  let algorithm = { name: 'HMAC', hash: { name: 'SHA-256' } }
 
   let keyBytes = encoder.encode(secret)
   let extractable = false
   let key = await crypto.subtle.importKey(
-    "raw",
+    'raw',
     keyBytes,
     algorithm,
     extractable,
-    ["sign", "verify"],
+    ['sign', 'verify'],
   )
 
   let sigBytes = hexToBytes(sigHex)
