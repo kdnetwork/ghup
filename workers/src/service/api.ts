@@ -36,7 +36,6 @@ apiHandle.get('/releases', async (c) => {
     {
       headers: {
         'user-agent': c.req.header('user-agent') || '',
-        range: c.req.header('range') || '',
         accept: c.req.header('accept') || '*/*',
 
         ...(repo.access_token && repo.rules?.api?.auth
@@ -94,7 +93,6 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
     {
       headers: {
         'user-agent': c.req.header('user-agent') || '',
-        range: c.req.header('range') || '',
         accept: c.req.header('accept') || '*/*',
 
         ...(repo.access_token && repo.rules?.api?.auth

@@ -52,8 +52,10 @@ release.get('/download/:tag/:file_name', async (c) => {
   //     )
   // }
 
-  if (upstream.status === 200) {
-    return c.newResponse(upstream.body, 200, { ...upstream.headers })
+  const accepted = upstream.status >= 200 && upstream.status < 300
+
+  if (accepted) {
+    return c.newResponse(upstream.body, upstream.status as ContentfulStatusCode, { ...upstream.headers })
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)
   }
@@ -132,8 +134,10 @@ archive.get('/:path{.*}', async (c) => {
   //     )
   // }
 
-  if (upstream.status === 200) {
-    return c.newResponse(upstream.body, 200, { ...upstream.headers })
+  const accepted = upstream.status >= 200 && upstream.status < 300
+
+  if (accepted) {
+    return c.newResponse(upstream.body, upstream.status as ContentfulStatusCode, { ...upstream.headers })
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)
   }
