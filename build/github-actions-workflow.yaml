@@ -1,0 +1,422 @@
+name: Build Native
+
+# created by copilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_prefix:
+        description: "Release version prefix (e.g., release, v1, build)"
+        type: string
+        default: "release"
+      cert_path:
+        description: "Path to save cacert.pem (empty to skip download)"
+        type: string
+        default: "/assets/certs/cacert.pem"
+      go_mod_dir:
+        description: "Directory containing go.mod (e.g., '.', './go', './server')"
+        type: string
+        default: "."
+      go_main_dir:
+        description: "Path to main package relative to go_mod_dir (e.g., '.', './cmd/main', './node')"
+        type: string
+        default: "."
+      version_tag_prefix:
+        description: "Prefix for version tag search in monorepo (e.g., '', 'a/', 'packages/core/')"
+        type: string
+        default: ""
+      build_windows:
+        description: "Build Windows binary"
+        type: boolean
+        default: false
+      build_darwin:
+        description: "Build macOS binaries"
+        type: boolean
+        default: false
+      build_docker:
+        description: "Build and push Docker image"
+        type: boolean
+        default: false
+      create_release:
+        description: "Create GitHub Release"
+        type: boolean
+        default: true
+      prerelease:
+        description: "Publish as prerelease"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-all-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "1"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GOVERSION: "1.25.6"
+
+jobs:
+  setup-version:
+    name: Setup Version
+    runs-on: ubuntu-latest
+    outputs:
+      version_tag: ${{ steps.version.outputs.version_tag }}
+      file_prefix: ${{ steps.version.outputs.file_prefix }}
+      is_semver: ${{ steps.version.outputs.is_semver }}
+      commit_hash: ${{ steps.version.outputs.commit_hash }}
+      build_at: ${{ steps.version.outputs.build_at }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Detect version
+        id: version
+        run: |
+          commit_hash=$(git rev-parse HEAD)
+          echo "commit_hash=${commit_hash}" >> "$GITHUB_OUTPUT"
+
+          # Generate build timestamp
+          build_at="$(date -u "+%Y-%m-%dT%H:%M:%SZ")"
+          echo "build_at=${build_at}" >> "$GITHUB_OUTPUT"
+          
+          # Try to get latest semver tag with optional prefix (for monorepo)
+          tag_prefix="${{ inputs.version_tag_prefix }}"
+          tag_pattern="${tag_prefix}v[0-9]*"
+          latest_tag=$(git describe --tags --match "${tag_pattern}" --abbrev=0 2>/dev/null || echo "")
+
+          # Strip prefix from tag if present
+          if [ -n "$latest_tag" ] && [ -n "$tag_prefix" ]; then
+            latest_tag="${latest_tag#$tag_prefix}"
+          fi
+          
+          if [ -z "$latest_tag" ]; then
+            # No semver tag found, generate new one
+            short_commit=${commit_hash:0:7}
+            version_tag="${{ inputs.release_prefix }}.$(date +%Y%m%d).${short_commit}"
+            file_prefix="${version_tag}"
+            is_semver="false"
+          else
+            # Use existing semver tag
+            version_tag="${latest_tag}"
+            file_prefix="${{ inputs.release_prefix }}.${latest_tag}"
+            is_semver="true"
+          fi
+
+          echo "version_tag=${version_tag}" >> "$GITHUB_OUTPUT"
+          echo "file_prefix=${file_prefix}" >> "$GITHUB_OUTPUT"
+          echo "is_semver=${is_semver}" >> "$GITHUB_OUTPUT"
+      
+      - name: Download cacert if needed
+        if: ${{ inputs.cert_path != '' }}
+        run: |
+          cert_dir=$(dirname "${{ inputs.cert_path }}")
+          mkdir -p "$cert_dir"
+          curl -o "${{ inputs.cert_path }}" https://curl.se/ca/cacert.pem
+      
+      - name: Upload cacert
+        if: ${{ inputs.cert_path != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release.cacert"
+          path: ${{ inputs.cert_path }}
+
+  release:
+    runs-on: ubuntu-latest
+    name: Release
+    if: inputs.create_release == true
+    permissions:
+      contents: write
+    needs:
+      - setup-version
+      - build-linux-binary
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Download Linux binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-linux-*
+          path: build
+          merge-multiple: true
+
+      - name: Download Windows binary
+        if: inputs.build_windows == true
+        uses: actions/download-artifact@v8
+        with:
+          name: release-windows
+          path: build
+      
+      - name: Download macOS binaries
+        if: inputs.build_darwin == true
+        uses: actions/download-artifact@v8
+        with:
+          name: release-darwin
+          path: build
+      
+      - name: Download cacert
+        if: inputs.cert_path != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: release.cacert
+          path: build
+      
+      - name: Generate checksums
+        run: |
+          cd build
+          for file in *; do
+            if [[ "$file" != *.sha256.txt && "$file" != release.cacert ]]; then
+              sha256sum "$file" > "$file.sha256.txt"
+            fi
+          done
+          cd -
+      
+      - name: Create release body
+        env:
+          GOVERSION: ${{ env.GOVERSION }}
+          BUILD_AT: ${{ needs.setup-version.outputs.build_at }}
+          COMMIT_HASH: ${{ needs.setup-version.outputs.commit_hash }}
+          VERSION_TAG: ${{ needs.setup-version.outputs.version_tag }}
+        run: |
+          cd build
+          
+          # Create release.yaml with basic info
+          cat > release.yaml <<'YAML_EOF'
+          build_version: ${{ env.GOVERSION }}
+          build_at: ${{ env.BUILD_AT }}
+          commit_hash: ${{ env.COMMIT_HASH }}
+          version: ${{ env.VERSION_TAG }}
+          publish_type: binary
+          sha256:
+          YAML_EOF
+          
+          # Add sha256 values for enabled platforms
+          # Linux (always present)
+          if [ -f release.linux-arm64.sha256.txt ]; then
+            echo "    linux_arm64: $(cut -d' ' -f1 release.linux-arm64.sha256.txt)" >> release.yaml
+          fi
+          if [ -f release.linux-amd64.sha256.txt ]; then
+            echo "    linux_amd64: $(cut -d' ' -f1 release.linux-amd64.sha256.txt)" >> release.yaml
+          fi
+          
+          # Windows (if enabled)
+          if [ -f release.windows-amd64.exe.sha256.txt ]; then
+            echo "    windows_amd64: $(cut -d' ' -f1 release.windows-amd64.exe.sha256.txt)" >> release.yaml
+          fi
+          
+          # macOS (if enabled)
+          if [ -f release.darwin-arm64.sha256.txt ]; then
+            echo "    darwin_arm64: $(cut -d' ' -f1 release.darwin-arm64.sha256.txt)" >> release.yaml
+          fi
+          if [ -f release.darwin-amd64.sha256.txt ]; then
+            echo "    darwin_amd64: $(cut -d' ' -f1 release.darwin-amd64.sha256.txt)" >> release.yaml
+          fi
+          
+          # Add signature if private key is available
+          if [ -n "${{ secrets.GHUP_PRIVATE_KEY }}" ]; then
+            SIGNATURE=$(openssl dgst -sha256 -sign <(echo "${{ secrets.GHUP_PRIVATE_KEY }}") release.yaml | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+            echo "signature: ${SIGNATURE}" >> release.yaml
+          fi
+          
+          # Convert to markdown format
+          cat > release.body.md <<'MD_EOF'
+          ```yaml
+          MD_EOF
+          cat release.yaml >> release.body.md
+          cat >> release.body.md <<'MD_EOF'
+          ```
+          MD_EOF
+
+          cd -
+      
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: build/*
+          fail_on_unmatched_files: false
+          tag_name: ${{ needs.setup-version.outputs.version_tag }}
+          body_path: build/release.body.md
+
+  build-linux-binary:
+    name: Build Binary for Linux/${{ matrix.arch.name }}
+    strategy:
+      matrix:
+        arch:
+          - name: arm64
+            runs-on: ubuntu-24.04-arm
+            compiler: /usr/bin/aarch64-linux-musl-gcc
+          - name: amd64
+            runs-on: ubuntu-24.04
+            compiler: /usr/bin/x86_64-linux-musl-gcc
+    runs-on: ${{ matrix.arch.runs-on }}
+    needs: setup-version
+    env:
+      file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Download cacert
+        if: inputs.cert_path != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: release.cacert
+          path: assets/certs/
+      
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GOVERSION }}
+          cache-dependency-path: "go.sum"
+      
+      - name: Install musl libc
+        run: sudo apt install -y musl-dev
+      
+      - name: Build
+        run: |
+          cd "${{ inputs.go_mod_dir }}"
+          ldflags="-s -w"
+          CC=${{ matrix.arch.compiler }} go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.linux-${{ matrix.arch.name }}" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-linux-${{ matrix.arch.name }}"
+          path: ${{ env.file_prefix }}.linux-${{ matrix.arch.name }}
+
+  build-darwin-binary:
+    name: Build Binary for macOS
+    runs-on: macos-latest
+    if: inputs.build_darwin == true
+    needs: setup-version
+    env:
+      file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Download cacert
+        if: inputs.cert_path != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: release.cacert
+          path: assets/certs/
+      
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GOVERSION }}
+          cache-dependency-path: "go.sum"
+      
+      - name: Build
+        run: |
+          cd "${{ inputs.go_mod_dir }}"
+          ldflags="-s -w"
+          
+          GOOS=darwin GOARCH=arm64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-arm64" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
+          GOOS=darwin GOARCH=amd64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-amd64" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-darwin"
+          path: |
+            ${{ env.file_prefix }}.darwin-arm64
+            ${{ env.file_prefix }}.darwin-amd64
+  build-windows-binary:
+    name: Build Binary for Windows
+    runs-on: windows-latest
+    if: inputs.build_windows == true
+    needs: setup-version
+    env:
+      file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      
+      - name: Download cacert
+        if: inputs.cert_path != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: release.cacert
+          path: assets/certs/
+      
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GOVERSION }}
+          cache-dependency-path: "go.sum"
+      
+      - name: Build
+        run: |
+          cd "${{ inputs.go_mod_dir }}"
+          $ldflags="-s -w"
+          go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.windows-amd64.exe" -ldflags $ldflags "${{ inputs.go_main_dir }}" -tags netgo
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: "release-windows"
+          path: ${{ env.file_prefix }}.windows-amd64.exe
+
+  combine-docker:
+    name: Docker Build
+    runs-on: ubuntu-24.04
+    if: inputs.build_docker == true
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    needs:
+      - setup-version
+      - build-linux-binary
+    env:
+      file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-linux-*
+          path: docker
+          merge-multiple: true
+      
+      - name: Rename
+        run: |
+          mv docker/${{ env.file_prefix }}.linux-arm64 docker/release.linux-arm64
+          mv docker/${{ env.file_prefix }}.linux-amd64 docker/release.linux-amd64
+
+      - name: Set Up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set Up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=raw,value=latest
+            type=raw,value={{date 'YYYYMMDD'}}
+            type=raw,value=release,enable=${{ !inputs.prerelease }}
+
+      - name: Buildx
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
