@@ -95,10 +95,16 @@ func (u *UpdateContent) Save() error {
 			return err
 		}
 
-		cmd := exec.Command("powershell",
-			"-Command",
-			"Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File \""+psFile+"\"'",
-		)
+		var cmd *exec.Cmd
+		if u.WindowsGUI == UpdaterVisibleConsole {
+			cmd = exec.Command("cmd",
+				"/C", "start", "",
+				"powershell", "-ExecutionPolicy", "Bypass", "-File", psFile,
+			)
+		} else {
+			cmd = exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", psFile)
+		}
+
 		if err := cmd.Start(); err != nil {
 			return err
 		}

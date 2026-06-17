@@ -13,6 +13,13 @@ import (
 	"time"
 )
 
+type UpdaterMode int
+
+const (
+	UpdaterSilent UpdaterMode = iota
+	UpdaterVisibleConsole
+)
+
 type UpdateContent struct {
 	// uri prefix
 	APIPrefix      string
@@ -29,6 +36,7 @@ type UpdateContent struct {
 
 	AutoRestart bool
 	ExePath     string
+	WindowsGUI  UpdaterMode
 
 	Asset struct {
 		Binary []byte
