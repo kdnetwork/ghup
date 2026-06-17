@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ type UpdateContent struct {
 
 	TestMode bool
 
+	AutoRestart bool
+	ExePath     string
+
 	Asset struct {
 		Binary []byte
 		Hash   string
@@ -36,10 +40,13 @@ type UpdateContent struct {
 
 // NewUpgrader exp repo `kdnetwork/ghup`
 func NewUpgrader(repo string) *UpdateContent {
+	exePath, _ := os.Executable()
+
 	return &UpdateContent{
 		APIPrefix:      "https://api.github.com/repos/" + repo,              // upgrade2
 		ReleasesPrefix: "https://github.com/" + repo + "/releases/download", // upgrade1
 		Headers:        make(map[string]string),
+		ExePath:        exePath,
 	}
 }
 

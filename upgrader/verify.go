@@ -1,12 +1,11 @@
 package ghup
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -57,26 +56,13 @@ func (u *UpdateContent) Verify() error {
 func (u *UpdateContent) Save() error {
 	// Path to the new tagName temporary file
 	tmpUUID := uuid.New().String()
-	tmpPath := filepath.Join(os.TempDir(), tmpUUID)
+	tmpPath := filepath.Join(os.TempDir(), tmpUUID+"_ghup_asset.tmp")
 
-	out, err := os.Create(tmpPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(out, bytes.NewReader(u.Asset.Binary))
-	if err != nil {
+	if err := os.WriteFile(tmpPath, u.Asset.Binary, 0o644); err != nil {
 		return err
 	}
 
-	s, err := file.Stat()
+	s, err := os.Stat(tmpPath)
 	if err != nil {
 		return err
 	}
@@ -84,29 +70,35 @@ func (u *UpdateContent) Save() error {
 		return errors.New("invalid file size")
 	}
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	slog.Debug("replace file", "path", execPath)
+	slog.Debug("replace file", "path", u.ExePath)
 
 	if runtime.GOOS != "windows" {
-		os.Chmod(tmpPath, 0755)
-		err = os.Rename(tmpPath, execPath)
+		os.Chmod(tmpPath, 0o755)
+		err = os.Rename(tmpPath, u.ExePath)
 		if err != nil {
 			return err
 		}
 	} else {
 		win_upgrade_script_template, _ := assets.Scripts.ReadFile("scripts/win_upgrade_script_template.ps1")
 
-		psScript := fmt.Sprintf(string(win_upgrade_script_template), execPath, tmpPath)
+		args, _ := json.Marshal(os.Args[1:])
+
+		autoRestartVal := "$false"
+		if u.AutoRestart {
+			autoRestartVal = "$true"
+		}
+
+		psScript := fmt.Sprintf(string(win_upgrade_script_template), u.ExePath, tmpPath, os.Getpid(), args, autoRestartVal)
 
 		psFile := filepath.Join(os.TempDir(), tmpUUID+"_ghup_win_upgrade_script.ps1")
-		if err := os.WriteFile(psFile, []byte(psScript), 0644); err != nil {
+		if err := os.WriteFile(psFile, []byte(psScript), 0o644); err != nil {
 			return err
 		}
 
-		cmd := exec.Command("powershell", "-ExecutionPolicy", "Bypass", "-File", psFile)
+		cmd := exec.Command("powershell",
+			"-Command",
+			"Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File \""+psFile+"\"'",
+		)
 		if err := cmd.Start(); err != nil {
 			return err
 		}
