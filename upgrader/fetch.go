@@ -20,7 +20,7 @@ import (
 
 var DefaultClient = new(http.Client)
 
-var DefaultUserAgent = "kdnetwork/ghup-upgrader"
+var DefaultUserAgent = "kdnetwork/ghup-upgrader-go"
 
 var useFormMethods = []string{http.MethodPost, http.MethodPut, http.MethodPatch}
 
