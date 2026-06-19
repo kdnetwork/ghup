@@ -46,3 +46,23 @@ function hexToBytes(hex: string): Uint8Array {
 
   return bytes
 }
+
+export function SafeHeader(h: Headers): Headers {
+  const newHeaders = new Headers()
+  for (const header of [
+    'accept-ranges',
+    'connection',
+    'content-disposition',
+    'content-length',
+    'content-type',
+    'date',
+    'etag',
+    'last-modified',
+  ]) {
+    const h2 = h.get(header)
+    if (h2) {
+      newHeaders.set(header, h2)
+    }
+  }
+  return newHeaders
+}

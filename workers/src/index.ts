@@ -11,9 +11,9 @@ const prefix = env.SECRET_PATH || ''
 
 const app = new Hono()
 
-const api = new Hono<apiVar>()
+const ghup = new Hono<apiVar>()
 
-api.use(async (c, next) => {
+ghup.use(async (c, next) => {
   const name = c.req.param('name') || ''
   const repo = c.req.param('repo') || ''
 
@@ -34,18 +34,18 @@ api.use(async (c, next) => {
   await next()
 })
 
-api.route('/releases/', release)
+ghup.route('/releases/', release)
 
-api.route('/', archive)
+ghup.route('/archive/', archive)
 
-api.route('/api/', apiHandle)
+ghup.route('/api/', apiHandle)
 
-api.route('/webhook/', webhook)
+ghup.route('/webhook/', webhook)
 
 if (prefix) {
-  app.route(`/${prefix}/:name/:repo/`, api)
+  app.route(`/${prefix}/:name/:repo/`, ghup)
 } else {
-  app.route(`/:name/:repo/`, api)
+  app.route(`/:name/:repo/`, ghup)
 }
 
 app.get('*', (c) => {

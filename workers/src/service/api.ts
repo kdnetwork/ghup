@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { apiVar, ReleaseInfoCacheMaxAge, ReleaseListCacheMaxAge } from '../vars'
 import { env } from 'cloudflare:workers'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { ReplaceValue } from '../utils/rule'
+import { ApplyRule, ReplaceValue } from '../utils/rule'
+import { SafeHeader } from '../utils/github'
 
 const apiHandle = new Hono<apiVar>()
 
@@ -121,6 +122,98 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
     'x-cache': 'MISS',
     'content-type': 'application/json; charset=utf-8',
   })
+})
+
+apiHandle.get('/releases/assets/:asset_id', async (c) => {
+  const repo = c.get('repo')
+
+  if (repo?.rules?.releases?.verify) {
+    if (!ApplyRule(repo.rules.releases.verify, c)) {
+      return c.text('', 404)
+    }
+  }
+
+  const { asset_id } = c.req.param()
+  if (!asset_id || !/^[1-9][0-9]*$/g.test(asset_id)) {
+    return c.text('', 404)
+  }
+
+  // // https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID
+  const assetURL = `https://api.github.com/repos/${repo.namespace}/releases/assets/${asset_id}`
+
+  const accept = 'application/octet-stream' //c.req.header('accept') || 'application/octet-stream'
+
+  const isAsset = accept === 'application/octet-stream'
+
+  const upstream = await fetch(assetURL, {
+    headers: {
+      'user-agent': c.req.header('user-agent') || '',
+      range: c.req.header('range') || '',
+      accept,
+
+      ...(repo.access_token &&
+      (isAsset ? repo.rules?.releases?.auth : repo.rules?.api?.auth)
+        ? { Authorization: 'Bearer ' + repo.access_token }
+        : {}),
+    },
+    method: 'get',
+    redirect: 'follow',
+  })
+
+  const accepted = upstream.status >= 200 && upstream.status < 300
+
+  if (accepted) {
+    return c.newResponse(
+      upstream.body,
+      upstream.status as ContentfulStatusCode,
+      Object.fromEntries(SafeHeader(upstream.headers).entries()),
+    )
+  } else {
+    return c.text('', upstream.status as ContentfulStatusCode)
+  }
+})
+
+apiHandle.get('/:archiveType{zipball|tarball}/:archiveTag', async (c) => {
+  const repo = c.get('repo')
+
+  const { archiveType, archiveTag } = c.req.param()
+
+  if (repo?.rules?.archive?.verify) {
+    if (!ApplyRule(repo.rules.archive.verify, c)) {
+      return c.text('', 404)
+    }
+  }
+
+  // 6 https://api.github.com/repos/{name}/{repo}/tarball/{tag|branch}
+  // 7 https://api.github.com/repos/{name}/{repo}/zipball/{tag|branch}
+
+  const assetURL = `https://api.github.com/repos/${repo.namespace}/${archiveType}/${archiveTag}`
+
+  const upstream = await fetch(assetURL, {
+    headers: {
+      'user-agent': c.req.header('user-agent') || '',
+      range: c.req.header('range') || '',
+      accept: c.req.header('accept') || '*/*',
+
+      ...(repo.access_token && repo.rules?.archive?.auth
+        ? { Authorization: 'Bearer ' + repo.access_token }
+        : {}),
+    },
+    method: 'get',
+    redirect: 'follow',
+  })
+
+  const accepted = upstream.status >= 200 && upstream.status < 300
+
+  if (accepted) {
+    return c.newResponse(
+      upstream.body,
+      upstream.status as ContentfulStatusCode,
+      Object.fromEntries(SafeHeader(upstream.headers).entries()),
+    )
+  } else {
+    return c.text('', upstream.status as ContentfulStatusCode)
+  }
 })
 
 export default apiHandle

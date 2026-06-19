@@ -73,19 +73,24 @@ export type ReplaceRule = RegexRule | ReplaceRulex
 export const ApplyRule = (rules: VerifyRules, c: Context<apiVar>): boolean => {
   for (const rule of rules) {
     if (Array.isArray(rule)) {
-      if (
-        rule.some((r) =>
-          RuleOperator(
-            r.Operator,
-            r.Not || false,
-            RuleInput(r.Field, c),
-            r.Value,
-          ),
-        )
-      ) {
-        continue
-      } else {
-        return false
+      let ok = true
+
+      for (const andRule of rule) {
+        if (
+          !RuleOperator(
+            andRule.Operator,
+            andRule.Not || false,
+            RuleInput(andRule.Field, c),
+            andRule.Value,
+          )
+        ) {
+          ok = false
+          break
+        }
+      }
+
+      if (ok) {
+        return true
       }
     } else {
       if (
@@ -96,14 +101,14 @@ export const ApplyRule = (rules: VerifyRules, c: Context<apiVar>): boolean => {
           rule.Value,
         )
       ) {
-        continue
+        return true
       } else {
-        return false
+        continue
       }
     }
   }
 
-  return true
+  return false
 }
 
 const RuleOperator = (
