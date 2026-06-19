@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
-	"github.com/kdnetwork/ghup/upgrader/assets"
+	"github.com/kdnetwork/ghup/go-sdk/assets"
 )
 
 func (u *UpdateContent) Save() error {

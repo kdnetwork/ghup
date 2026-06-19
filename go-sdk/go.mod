@@ -1,4 +1,4 @@
-module github.com/kdnetwork/ghup/upgrader
+module github.com/kdnetwork/ghup/go-sdk
 
 go 1.25.6
 
