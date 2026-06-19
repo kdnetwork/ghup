@@ -8,6 +8,7 @@ export interface RepoItem {
   namespace: string
   private?: boolean
   platform: 'github'
+  default_branch?: 'master' | 'main' | string
   access_token?: string
   rules?: Partial<{
     [p in 'releases' | 'archive' | 'api']: {

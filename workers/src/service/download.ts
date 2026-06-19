@@ -22,14 +22,6 @@ release.get('/download/:tag/:file_name', async (c) => {
   // https://github.com/{name}/{repo}/releases/download/{tag}/{file}
   const assetURL = `https://github.com/${repo.namespace}/releases/download/${tag}/${file_name}`
 
-  // const cacheKey = 'asseturl:' + assetPath
-  //
-  // let cachedURL = await env.KV.get(cacheKey)
-  //
-  // if (cachedURL) {
-  //     assetURL = cachedURL
-  // }
-
   const upstream = await fetch(assetURL, {
     headers: {
       'user-agent': c.req.header('user-agent') || '',
@@ -44,18 +36,58 @@ release.get('/download/:tag/:file_name', async (c) => {
     redirect: 'follow',
   })
 
-  // if (!cachedURL) {
-  //     ctx.waitUntil(
-  //         env.KV.put(cacheKey, upstream.url, {
-  //             expirationTtl: 60 * 15, // 15 minutes // up to 30 mins
-  //         }),
-  //     )
-  // }
+  const accepted = upstream.status >= 200 && upstream.status < 300
+
+  if (accepted) {
+    return c.newResponse(
+      upstream.body,
+      upstream.status as ContentfulStatusCode,
+      Object.fromEntries(upstream.headers.entries()),
+    )
+  } else {
+    return c.text('', upstream.status as ContentfulStatusCode)
+  }
+})
+
+release.get('/assets/:asset_id', async (c) => {
+  const repo = c.get('repo')
+
+  if (repo?.rules?.releases?.verify) {
+    if (!ApplyRule(repo.rules.releases.verify, c)) {
+      return c.text('', 404)
+    }
+  }
+
+  const { asset_id } = c.req.param()
+  if (!asset_id || !/^[1-9][0-9]*$/g.test(asset_id)) {
+    return c.text('', 404)
+  }
+
+  // // https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID
+  const assetURL = `https://api.github.com/repos/${repo.namespace}/releases/assets/${asset_id}`
+
+  const upstream = await fetch(assetURL, {
+    headers: {
+      'user-agent': c.req.header('user-agent') || '',
+      range: c.req.header('range') || '',
+      accept: 'application/octet-stream',
+
+      ...(repo.access_token && repo.rules?.api?.auth
+        ? { Authorization: 'Bearer ' + repo.access_token }
+        : {}),
+    },
+    method: 'get',
+    redirect: 'follow',
+  })
 
   const accepted = upstream.status >= 200 && upstream.status < 300
 
   if (accepted) {
-    return c.newResponse(upstream.body, upstream.status as ContentfulStatusCode, { ...upstream.headers })
+    return c.newResponse(
+      upstream.body,
+      upstream.status as ContentfulStatusCode,
+      Object.fromEntries(upstream.headers.entries()),
+    )
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)
   }
@@ -63,8 +95,10 @@ release.get('/download/:tag/:file_name', async (c) => {
 
 const archive = new Hono<apiVar>()
 
-archive.get('/:path{.*}', async (c) => {
+archive.get('/:archive{archive|zipball|tarball}/:path{.*}', async (c) => {
   const repo = c.get('repo')
+
+  const { archive, path } = c.req.param()
 
   if (repo?.rules?.archive?.verify) {
     if (!ApplyRule(repo.rules.archive.verify, c)) {
@@ -72,45 +106,37 @@ archive.get('/:path{.*}', async (c) => {
     }
   }
 
-  const fileName = c.req.param('path') || ''
+  const fileName = (path || '').trim()
 
-  const splitedPath = fileName.split('/')
+  const archiveObject = {
+    type: 'zipball',
+    tag: repo.default_branch || 'main',
+  }
+
+  if (archive === 'archive') {
+    archiveObject.type = fileName.endsWith('.tar.gz') ? 'tarball' : 'zipball'
+    archiveObject.tag = fileName
+      .replace('refs/heads/', '')
+      .replace('refs/tags/', '')
+      .replace('.zip', '')
+      .replace('.tar.gz', '')
+  } else {
+    archiveObject.type = archive === 'tarball' ? 'tarball' : 'zipball'
+    archiveObject.tag = fileName.replace('.zip', '').replace('.tar.gz', '')
+  }
 
   // 1 https://github.com/{name}/{repo}/    archive/    refs/heads/master.zip
   // 2 https://github.com/{name}/{repo}/    archive/    refs/heads/{branch}.zip
-  // 3 https://github.com/{name}/{repo}/    archive/    {tag}.zip
-  // 4 https://github.com/{name}/{repo}/    archive/    refs/tags/{tag}.zip
-  // 5 https://github.com/{name}/{repo}/    archive/    refs/tags/{tag}.tar.gz
+  // 3 https://github.com/{name}/{repo}/    archive/    {tag}.zip->to7 by replace()
+  // 4 https://github.com/{name}/{repo}/    archive/    refs/tags/{tag}.zip->to7 by replace()
+  // 5 https://github.com/{name}/{repo}/    archive/    refs/tags/{tag}.tar.gz->to6 by replace()
   //
-  // https://api.github.com/repos/{name}/{repo}/tarball/{tag}->to5 by replace()
-  // https://api.github.com/repos/{name}/{repo}/zipball/{tag}->to4 by replace()
-  // https://codeload.github.com/{name}/{repo}/legacy.tar.gz/refs/tags/{tag}->not yet support
-  // https://codeload.github.com/{name}/{repo}/zip/refs/heads/master->to1 by replace()
+  // 6 https://api.github.com/repos/{name}/{repo}/tarball/{tag}
+  // 7 https://api.github.com/repos/{name}/{repo}/zipball/{tag}
+  // 8 https://codeload.github.com/{name}/{repo}/legacy.tar.gz/refs/tags/{tag}->not yet support
+  // 9 https://codeload.github.com/{name}/{repo}/zip/refs/heads/master->to1 by replace()
 
-  let assetURL = ''
-  if (
-    (splitedPath.length === 3 &&
-      (fileName.startsWith('refs/heads/') ||
-        fileName.startsWith('refs/tags/'))) ||
-    (splitedPath.length === 1 && /^[0-9a-fA-F]+\.zip$/g.test(fileName))
-  ) {
-    assetURL = 'https://github.com/' + repo.namespace + '/archive/' + fileName
-  } else if (splitedPath.length === 0) {
-    assetURL =
-      'https://github.com/' + repo.namespace + '/archive/refs/heads/master.zip'
-  }
-
-  if (!assetURL) {
-    return new Response('', { status: 404 })
-  }
-
-  // const cacheKey = 'asseturl:' + assetPath
-  //
-  // let cachedURL = await env.KV.get(cacheKey)
-  //
-  // if (cachedURL) {
-  //     assetURL = cachedURL
-  // }
+  const assetURL = `https://api.github.com/repos/${repo.namespace}/${archiveObject.type}/${archiveObject.tag}`
 
   const upstream = await fetch(assetURL, {
     headers: {
@@ -126,18 +152,14 @@ archive.get('/:path{.*}', async (c) => {
     redirect: 'follow',
   })
 
-  // if (!cachedURL) {
-  //     ctx.waitUntil(
-  //         env.KV.put(cacheKey, upstream.url, {
-  //             expirationTtl: 60 * 15, // 15 minutes // up to 30 mins
-  //         }),
-  //     )
-  // }
-
   const accepted = upstream.status >= 200 && upstream.status < 300
 
   if (accepted) {
-    return c.newResponse(upstream.body, upstream.status as ContentfulStatusCode, { ...upstream.headers })
+    return c.newResponse(
+      upstream.body,
+      upstream.status as ContentfulStatusCode,
+      Object.fromEntries(upstream.headers.entries()),
+    )
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)
   }

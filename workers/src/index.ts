@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-// import { showRoutes } from "hono/dev"
+// import { showRoutes } from 'hono/dev'
 import { env } from 'cloudflare:workers'
 import type { apiVar } from './vars'
 import apiHandle from './service/api'
@@ -36,7 +36,7 @@ api.use(async (c, next) => {
 
 api.route('/releases/', release)
 
-api.route('/archive/', archive)
+api.route('/', archive)
 
 api.route('/api/', apiHandle)
 
