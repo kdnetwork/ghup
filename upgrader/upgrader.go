@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,8 +24,7 @@ const (
 
 type UpdateContent struct {
 	// uri prefix
-	APIPrefix      string
-	ReleasesPrefix string // not yet used now
+	APIPrefix string
 
 	// http requests
 	Headers map[string]string
@@ -51,17 +52,16 @@ func NewUpgrader(repo string) *UpdateContent {
 	exePath, _ := os.Executable()
 
 	return &UpdateContent{
-		APIPrefix:      "https://api.github.com/repos/" + repo,              // upgrade2
-		ReleasesPrefix: "https://github.com/" + repo + "/releases/download", // upgrade1
-		Headers:        make(map[string]string),
-		ExePath:        exePath,
+		APIPrefix: "https://api.github.com/repos/" + repo, // upgrade2/upgrade1
+		Headers:   make(map[string]string),
+		ExePath:   exePath,
 	}
 }
 
 // https://api.github.com/repos/${{name}}/${{repo}}/releases []ReleaseInfoStruct
 // https://api.github.com/repos/${{name}}/${{repo}}/releases/tags/${{tag}} ReleaseInfoStruct
 type ReleaseInfoStruct struct {
-	ID          int       `json:"id"`
+	ID          int       `json:"id"` // <-
 	TagName     string    `json:"tag_name"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -75,7 +75,7 @@ type ReleaseInfoStruct struct {
 		Digest             string    `json:"digest"` // <-
 		CreatedAt          time.Time `json:"created_at"`
 		UpdatedAt          time.Time `json:"updated_at"`
-		BrowserDownloadURL string    `json:"browser_download_url"` // <-
+		BrowserDownloadURL string    `json:"browser_download_url"`
 	} `json:"assets"`
 	Body string `json:"body"`
 }
@@ -136,7 +136,7 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 
 	for _, asset := range tagInfo.Assets {
 		if asset.Name == binName {
-			u.Asset.URL = asset.BrowserDownloadURL
+			u.Asset.URL = u.APIPrefix + "/releases/assets/" + strconv.Itoa(asset.ID)
 			u.Asset.Hash = strings.TrimSpace(strings.ReplaceAll(asset.Digest, "sha256:", ""))
 			u.Asset.Size = asset.Size
 			break
@@ -148,7 +148,9 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 
 	// get binary
 	since := time.Now()
-	err := u.UpgradeDownloader(u.Asset.URL, DefaultHeaderMap)
+	binaryHeaderMap := maps.Clone(DefaultHeaderMap)
+	binaryHeaderMap["Accept"] = "application/octet-stream"
+	err := u.UpgradeDownloader(u.Asset.URL, binaryHeaderMap)
 	if err != nil {
 		return err
 	}
