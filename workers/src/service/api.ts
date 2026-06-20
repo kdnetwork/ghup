@@ -4,8 +4,11 @@ import { env } from 'cloudflare:workers'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { ApplyRule, ReplaceValue } from '../utils/rule'
 import { SafeHeader } from '../utils/github'
+import { cors } from 'hono/cors'
 
 const apiHandle = new Hono<apiVar>()
+
+apiHandle.use('*', cors())
 
 apiHandle.get('/releases', async (c) => {
   const repo = c.get('repo')
