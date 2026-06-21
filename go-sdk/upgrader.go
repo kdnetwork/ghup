@@ -22,6 +22,14 @@ const (
 	UpdaterVisibleConsole
 )
 
+type VerifyLocation int
+
+const (
+	VerifyLocationBeforeCheck VerifyLocation = iota
+	VerifyLocationBeforeDownload
+	VerifyLocationAfterDownload
+)
+
 type UpdateContent struct {
 	// uri prefix
 	APIPrefix string
@@ -31,15 +39,20 @@ type UpdateContent struct {
 	Client  *http.Client
 
 	// custom verify
-	CustomVerify func() error
+	CustomVerify func(*UpdateContent, int) error
 
 	TestMode bool
 
-	AutoRestart bool
-	ExePath     string
-	WindowsGUI  UpdaterMode
+	System struct {
+		ExePath string
+		WorkDir string
+		Pid     int
+
+		WindowsGUI UpdaterMode
+	}
 
 	Asset struct {
+		Info   *ReleaseInfoStruct
 		Binary []byte
 		Hash   string
 		Size   int
@@ -50,12 +63,19 @@ type UpdateContent struct {
 // NewUpgrader exp repo `kdnetwork/ghup`
 func NewUpgrader(repo string) *UpdateContent {
 	exePath, _ := os.Executable()
+	workdir, _ := os.Getwd()
+	pid := os.Getpid()
 
-	return &UpdateContent{
+	ctx := &UpdateContent{
 		APIPrefix: "https://api.github.com/repos/" + repo, // upgrade2/upgrade1
 		Headers:   make(map[string]string),
-		ExePath:   exePath,
 	}
+
+	ctx.System.ExePath = exePath
+	ctx.System.WorkDir = workdir
+	ctx.System.Pid = pid
+
+	return ctx
 }
 
 // https://api.github.com/repos/${{name}}/${{repo}}/releases []ReleaseInfoStruct
@@ -90,7 +110,9 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 		return errors.New("invalid uri")
 	}
 
-	var tagInfo ReleaseInfoStruct
+	if u.CustomVerify != nil {
+		return u.CustomVerify(u, int(VerifyLocationBeforeCheck))
+	}
 
 	// pre check tagName
 	if tagName == "" {
@@ -105,25 +127,27 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 		}
 
 		if len(releasesList) > 0 {
-			tagInfo = releasesList[0]
-			tagName = tagInfo.TagName
+			u.Asset.Info = &releasesList[0]
+			tagName = u.Asset.Info.TagName
 		}
 
 	} else {
 		// get info
 		_, tagBody, err := u.Fetch(u.APIPrefix+"/releases/tags/"+tagName, http.MethodGet, nil, DefaultHeaderMap)
 
+		var tagInfo ReleaseInfoStruct
 		err = json.Unmarshal(tagBody, &tagInfo)
 		if err != nil {
 			return err
 		}
 
-		if tagInfo.TagName != tagName {
+		u.Asset.Info = &tagInfo
+		if u.Asset.Info.TagName != tagName {
 			return errors.New("invalid version")
 		}
 	}
 
-	if len(tagInfo.Assets) == 0 {
+	if u.Asset.Info == nil || len(u.Asset.Info.Assets) == 0 {
 		return errors.New("no asset")
 	}
 
@@ -134,7 +158,7 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 		binName += ".exe"
 	}
 
-	for _, asset := range tagInfo.Assets {
+	for _, asset := range u.Asset.Info.Assets {
 		if asset.Name == binName {
 			u.Asset.URL = u.APIPrefix + "/releases/assets/" + strconv.Itoa(asset.ID)
 			u.Asset.Hash = strings.TrimSpace(strings.ReplaceAll(asset.Digest, "sha256:", ""))
@@ -144,6 +168,10 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 	}
 	if u.Asset.URL == "" {
 		return errors.New("no downloaded binary")
+	}
+
+	if u.CustomVerify != nil {
+		return u.CustomVerify(u, int(VerifyLocationBeforeDownload))
 	}
 
 	// get binary

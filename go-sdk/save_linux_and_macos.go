@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (u *UpdateContent) Save() error {
+func (u *UpdateContent) Save(restart bool) error {
 	// Path to the new tagName temporary file
 	tmpUUID := uuid.New().String()
 	tmpPath := filepath.Join(os.TempDir(), tmpUUID+"_ghup_asset.tmp")
@@ -29,16 +29,16 @@ func (u *UpdateContent) Save() error {
 		return errors.New("invalid file size")
 	}
 
-	slog.Debug("replace file", "path", u.ExePath)
+	slog.Debug("replace file", "path", u.System.ExePath)
 
 	os.Chmod(tmpPath, 0o755)
-	err = os.Rename(tmpPath, u.ExePath)
+	err = os.Rename(tmpPath, u.System.ExePath)
 	if err != nil {
 		return err
 	}
 
-	if u.AutoRestart {
-		return syscall.Exec(u.ExePath, os.Args, os.Environ())
+	if restart {
+		return syscall.Exec(u.System.ExePath, os.Args, os.Environ())
 	}
 
 	return nil

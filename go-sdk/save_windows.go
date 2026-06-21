@@ -15,7 +15,7 @@ import (
 	"github.com/kdnetwork/ghup/go-sdk/assets"
 )
 
-func (u *UpdateContent) Save() error {
+func (u *UpdateContent) Save(restart bool) error {
 	// Path to the new tagName temporary file
 	tmpUUID := uuid.New().String()
 	tmpPath := filepath.Join(os.TempDir(), tmpUUID+"_ghup_asset.tmp")
@@ -32,18 +32,18 @@ func (u *UpdateContent) Save() error {
 		return errors.New("invalid file size")
 	}
 
-	slog.Debug("replace file", "path", u.ExePath)
+	slog.Debug("replace file", "path", u.System.ExePath)
 
 	win_upgrade_script_template, _ := assets.Scripts.ReadFile("scripts/win_upgrade_script_template.ps1")
 
 	args, _ := json.Marshal(os.Args[1:])
 
 	autoRestartVal := "$false"
-	if u.AutoRestart {
+	if restart {
 		autoRestartVal = "$true"
 	}
 
-	psScript := fmt.Sprintf(string(win_upgrade_script_template), u.ExePath, tmpPath, os.Getpid(), args, autoRestartVal)
+	psScript := fmt.Sprintf(string(win_upgrade_script_template), u.System.ExePath, tmpPath, u.System.Pid, args, autoRestartVal, u.System.WorkDir)
 
 	psFile := filepath.Join(os.TempDir(), tmpUUID+"_ghup_win_upgrade_script.ps1")
 	if err := os.WriteFile(psFile, []byte(psScript), 0o644); err != nil {
@@ -51,7 +51,7 @@ func (u *UpdateContent) Save() error {
 	}
 
 	var cmd *exec.Cmd
-	if u.WindowsGUI == UpdaterVisibleConsole {
+	if u.System.WindowsGUI == UpdaterVisibleConsole {
 		cmd = exec.Command("cmd",
 			"/C", "start", "",
 			"powershell", "-ExecutionPolicy", "Bypass", "-File", psFile,

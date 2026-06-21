@@ -9,6 +9,8 @@ $restartArgs = @'
 
 $autoRestart = %s #$true/$false
 
+$workDir = "%s"
+
 $psScriptPath = $MyInvocation.MyCommand.Definition
 
 Write-Host "Waiting for PID: $exePid"
@@ -29,17 +31,12 @@ Move-Item -Force -Path $newExe -Destination $exePath
 Write-Host "File copy completed"
 
 if ($autoRestart -eq $true) {
-    for ($i = 3; $i -ge 1; $i--) {
-        Write-Host "Restarting in $i..."
-        Start-Sleep 1
-    }
-    
     Write-Host "Restarting..."
 
     if ($restartArgs.Count -gt 0) {
-        Start-Process -FilePath $exePath -ArgumentList $restartArgs -WorkingDirectory (Split-Path $exePath)
+        Start-Process -FilePath $exePath -ArgumentList $restartArgs -WorkingDirectory $workDir
     } else {
-        Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath)
+        Start-Process -FilePath $exePath -WorkingDirectory $workDir
     }
 }
 
