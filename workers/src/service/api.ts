@@ -62,16 +62,21 @@ apiHandle.get('/releases', async (c) => {
         expirationTtl: ReleaseListCacheMaxAge,
       }),
     )
-  }
 
-  return c.json(
-    JSON.parse(body).slice(0, count),
-    upstream.status as ContentfulStatusCode,
-    {
+    return c.json(
+      JSON.parse(body).slice(0, count),
+      upstream.status as ContentfulStatusCode,
+      {
+        'x-cache': 'MISS',
+        'content-type': 'application/json; charset=utf-8',
+      },
+    )
+  } else {
+    return c.json([], upstream.status as ContentfulStatusCode, {
       'x-cache': 'MISS',
       'content-type': 'application/json; charset=utf-8',
-    },
-  )
+    })
+  }
 })
 
 apiHandle.get('/releases/tags/:tag', async (c) => {
