@@ -35,6 +35,7 @@ export interface VerifyRule {
     | 'referer'
     | 'user_agent'
     | 'x_forwarded_for'
+    | 'authorization'
   Operator:
     | '>='
     | '>'
@@ -204,6 +205,8 @@ const RuleInput = (Field: VerifyRule['Field'], c: Context<apiVar>): string => {
       return c.req.header('User-Agent') || ''
     case 'x_forwarded_for':
       return c.req.header('X-Forwarded-For') || ''
+    case 'authorization':
+      return c.req.header('Authorization') || ''
     default:
       return ''
   }
