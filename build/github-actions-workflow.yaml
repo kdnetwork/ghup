@@ -179,6 +179,7 @@ jobs:
           BUILD_AT: ${{ needs.setup-version.outputs.build_at }}
           COMMIT_HASH: ${{ needs.setup-version.outputs.commit_hash }}
           VERSION_TAG: ${{ needs.setup-version.outputs.version_tag }}
+          FILE_PREFIX: ${{ needs.setup-version.outputs.file_prefix }}
         run: |
           cd build
           
@@ -189,29 +190,30 @@ jobs:
           commit_hash: ${{ env.COMMIT_HASH }}
           version: ${{ env.VERSION_TAG }}
           publish_type: binary
+          prerelease: ${{ inputs.prerelease }}
           sha256:
           YAML_EOF
           
           # Add sha256 values for enabled platforms
           # Linux (always present)
-          if [ -f release.linux-arm64.sha256.txt ]; then
-            echo "    linux_arm64: $(cut -d' ' -f1 release.linux-arm64.sha256.txt)" >> release.yaml
+          if [ -f "${FILE_PREFIX}.linux-arm64.sha256.txt" ]; then
+            echo "    linux_arm64: $(cut -d' ' -f1 "${FILE_PREFIX}.linux-arm64.sha256.txt")" >> release.yaml
           fi
-          if [ -f release.linux-amd64.sha256.txt ]; then
-            echo "    linux_amd64: $(cut -d' ' -f1 release.linux-amd64.sha256.txt)" >> release.yaml
+          if [ -f "${FILE_PREFIX}.linux-amd64.sha256.txt" ]; then
+            echo "    linux_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.linux-amd64.sha256.txt")" >> release.yaml
           fi
           
           # Windows (if enabled)
-          if [ -f release.windows-amd64.exe.sha256.txt ]; then
-            echo "    windows_amd64: $(cut -d' ' -f1 release.windows-amd64.exe.sha256.txt)" >> release.yaml
+          if [ -f "${FILE_PREFIX}.windows-amd64.exe.sha256.txt" ]; then
+            echo "    windows_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.windows-amd64.exe.sha256.txt")" >> release.yaml
           fi
           
           # macOS (if enabled)
-          if [ -f release.darwin-arm64.sha256.txt ]; then
-            echo "    darwin_arm64: $(cut -d' ' -f1 release.darwin-arm64.sha256.txt)" >> release.yaml
+          if [ -f "${FILE_PREFIX}.darwin-arm64.sha256.txt" ]; then
+            echo "    darwin_arm64: $(cut -d' ' -f1 "${FILE_PREFIX}.darwin-arm64.sha256.txt")" >> release.yaml
           fi
-          if [ -f release.darwin-amd64.sha256.txt ]; then
-            echo "    darwin_amd64: $(cut -d' ' -f1 release.darwin-amd64.sha256.txt)" >> release.yaml
+          if [ -f "${FILE_PREFIX}.darwin-amd64.sha256.txt" ]; then
+            echo "    darwin_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.darwin-amd64.sha256.txt")" >> release.yaml
           fi
           
           # Add signature if private key is available
@@ -219,7 +221,7 @@ jobs:
             SIGNATURE=$(openssl dgst -sha256 -sign <(echo "${{ secrets.GHUP_PRIVATE_KEY }}") release.yaml | base64 -w 0 | tr '+/' '-_' | tr -d '=')
             echo "signature: ${SIGNATURE}" >> release.yaml
           fi
-          
+
           # Convert to markdown format
           cat > release.body.md <<'MD_EOF'
           ```yaml
@@ -235,6 +237,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: build/*
+          prerelease: ${{ inputs.prerelease }}
           fail_on_unmatched_files: false
           tag_name: ${{ needs.setup-version.outputs.version_tag }}
           body_path: build/release.body.md
@@ -276,8 +279,8 @@ jobs:
       - name: Build
         run: |
           cd "${{ inputs.go_mod_dir }}"
-          ldflags="-s -w"
-          CC=${{ matrix.arch.compiler }} go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.linux-${{ matrix.arch.name }}" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
+          ldflags="-s -w -linkmode external -extldflags -static"
+          CC=${{ matrix.arch.compiler }} go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.linux-${{ matrix.arch.name }}" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -313,8 +316,8 @@ jobs:
           cd "${{ inputs.go_mod_dir }}"
           ldflags="-s -w"
           
-          GOOS=darwin GOARCH=arm64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-arm64" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
-          GOOS=darwin GOARCH=amd64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-amd64" -ldflags "$ldflags" "${{ inputs.go_main_dir }}" -tags netgo
+          GOOS=darwin GOARCH=arm64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-arm64" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
+          GOOS=darwin GOARCH=amd64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-amd64" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -350,7 +353,7 @@ jobs:
         run: |
           cd "${{ inputs.go_mod_dir }}"
           $ldflags="-s -w"
-          go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.windows-amd64.exe" -ldflags $ldflags "${{ inputs.go_main_dir }}" -tags netgo
+          go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.windows-amd64.exe" -ldflags $ldflags -tags netgo "${{ inputs.go_main_dir }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
