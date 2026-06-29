@@ -57,14 +57,21 @@ apiHandle.get('/releases', async (c) => {
   }
 
   if (upstream.status === 200) {
+    let releases = JSON.parse(body)
+    if (Array.isArray(releases)) {
+      releases.sort((a: any, b: any) => {
+        return b.id - a.id
+      })
+    }
+
     c.executionCtx.waitUntil(
-      env.KV.put(cacheKey, body, {
+      env.KV.put(cacheKey, JSON.stringify(releases), {
         expirationTtl: ReleaseListCacheMaxAge,
       }),
     )
 
     return c.json(
-      JSON.parse(body).slice(0, count),
+      releases.slice(0, count),
       upstream.status as ContentfulStatusCode,
       {
         'x-cache': 'MISS',
