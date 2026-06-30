@@ -38,11 +38,13 @@ webhook.post('/:hook_type', async (c) => {
 
         // get tag-name
         const tagName = payload?.release?.tag_name
+        const assetsLength = payload?.release?.assets?.length || 0
         if (tagName) {
           const cacheKey = repo.namespace + ':tag:' + tagName
-
           if (['deleted', 'unpublished'].includes(payload.action)) {
             c.executionCtx.waitUntil(env.KV.delete(cacheKey))
+          } else if (assetsLength === 0) {
+            return c.text('', 200)
           } else {
             let body = JSON.stringify(payload.release)
 
