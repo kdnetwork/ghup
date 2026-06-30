@@ -15,11 +15,12 @@ import (
 func (u *UpdateContent) Save(restart bool) error {
 	// Path to the new tagName temporary file
 	tmpUUID := uuid.New().String()
-	tmpPath := filepath.Join(os.TempDir(), tmpUUID+"_ghup_asset.tmp")
+	tmpPath := filepath.Join(filepath.Dir(u.System.ExePath), "."+tmpUUID+"_ghup_asset.tmp")
 
 	if err := os.WriteFile(tmpPath, u.Asset.Binary, 0o644); err != nil {
 		return err
 	}
+	defer os.Remove(tmpPath)
 
 	s, err := os.Stat(tmpPath)
 	if err != nil {

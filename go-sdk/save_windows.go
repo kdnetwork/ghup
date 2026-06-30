@@ -18,7 +18,7 @@ import (
 func (u *UpdateContent) Save(restart bool) error {
 	// Path to the new tagName temporary file
 	tmpUUID := uuid.New().String()
-	tmpPath := filepath.Join(os.TempDir(), tmpUUID+"_ghup_asset.tmp")
+	tmpPath := filepath.Join(filepath.Dir(u.System.ExePath), "."+tmpUUID+"_ghup_asset.tmp")
 
 	if err := os.WriteFile(tmpPath, u.Asset.Binary, 0o644); err != nil {
 		return err
@@ -45,7 +45,7 @@ func (u *UpdateContent) Save(restart bool) error {
 
 	psScript := fmt.Sprintf(string(win_upgrade_script_template), u.System.ExePath, tmpPath, u.System.Pid, args, autoRestartVal, u.System.WorkDir)
 
-	psFile := filepath.Join(os.TempDir(), tmpUUID+"_ghup_win_upgrade_script.ps1")
+	psFile := filepath.Join(filepath.Dir(u.System.ExePath), "."+tmpUUID+"_ghup_win_upgrade_script.ps1")
 	if err := os.WriteFile(psFile, []byte(psScript), 0o644); err != nil {
 		return err
 	}
