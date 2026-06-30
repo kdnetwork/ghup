@@ -111,7 +111,9 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 	}
 
 	if u.CustomVerify != nil {
-		return u.CustomVerify(u, int(VerifyLocationBeforeCheck))
+		if err := u.CustomVerify(u, int(VerifyLocationBeforeCheck)); err != nil {
+			return err
+		}
 	}
 
 	// pre check tagName
@@ -171,7 +173,9 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 	}
 
 	if u.CustomVerify != nil {
-		return u.CustomVerify(u, int(VerifyLocationBeforeDownload))
+		if err := u.CustomVerify(u, int(VerifyLocationBeforeDownload)); err != nil {
+			return err
+		}
 	}
 
 	// get binary

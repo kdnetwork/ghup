@@ -164,15 +164,18 @@ jobs:
           path: build
       
       - name: Generate checksums
+        env:
+          FILE_PREFIX: ${{ needs.setup-version.outputs.file_prefix }}
         run: |
           cd build
+          sha256_file="${FILE_PREFIX}.sha256.txt"
           for file in *; do
             if [[ "$file" != *.sha256.txt && "$file" != release.cacert ]]; then
-              sha256sum "$file" > "$file.sha256.txt"
+              sha256sum "$file" >> "$sha256_file"
             fi
           done
           cd -
-      
+
       - name: Create release body
         env:
           GOVERSION: ${{ env.GOVERSION }}
@@ -195,27 +198,43 @@ jobs:
           YAML_EOF
           
           # Add sha256 values for enabled platforms
+          SHA256_FILE="${FILE_PREFIX}.sha256.txt"
+          
+          function get_sha256() {
+            local pattern=$1
+            if [ -f "$SHA256_FILE" ]; then
+              grep "$pattern" "$SHA256_FILE" | head -n 1 | cut -d' ' -f1
+            fi
+          }
+
           # Linux (always present)
-          if [ -f "${FILE_PREFIX}.linux-arm64.sha256.txt" ]; then
-            echo "    linux_arm64: $(cut -d' ' -f1 "${FILE_PREFIX}.linux-arm64.sha256.txt")" >> release.yaml
-          fi
-          if [ -f "${FILE_PREFIX}.linux-amd64.sha256.txt" ]; then
-            echo "    linux_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.linux-amd64.sha256.txt")" >> release.yaml
+          SHA_ARM64=$(get_sha256 "${FILE_PREFIX}.linux-arm64")
+          if [ -n "$SHA_ARM64" ]; then
+            echo "    linux_arm64: $SHA_ARM64" >> release.yaml
           fi
           
+          SHA_AMD64=$(get_sha256 "${FILE_PREFIX}.linux-amd64")
+          if [ -n "$SHA_AMD64" ]; then
+            echo "    linux_amd64: $SHA_AMD64" >> release.yaml
+          fi
+
           # Windows (if enabled)
-          if [ -f "${FILE_PREFIX}.windows-amd64.exe.sha256.txt" ]; then
-            echo "    windows_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.windows-amd64.exe.sha256.txt")" >> release.yaml
+          SHA_WIN=$(get_sha256 "${FILE_PREFIX}.windows-amd64.exe")
+          if [ -n "$SHA_WIN" ]; then
+            echo "    windows_amd64: $SHA_WIN" >> release.yaml
           fi
-          
+
           # macOS (if enabled)
-          if [ -f "${FILE_PREFIX}.darwin-arm64.sha256.txt" ]; then
-            echo "    darwin_arm64: $(cut -d' ' -f1 "${FILE_PREFIX}.darwin-arm64.sha256.txt")" >> release.yaml
+          SHA_DARWIN_ARM64=$(get_sha256 "${FILE_PREFIX}.darwin-arm64")
+          if [ -n "$SHA_DARWIN_ARM64" ]; then
+            echo "    darwin_arm64: $SHA_DARWIN_ARM64" >> release.yaml
           fi
-          if [ -f "${FILE_PREFIX}.darwin-amd64.sha256.txt" ]; then
-            echo "    darwin_amd64: $(cut -d' ' -f1 "${FILE_PREFIX}.darwin-amd64.sha256.txt")" >> release.yaml
+
+          SHA_DARWIN_AMD64=$(get_sha256 "${FILE_PREFIX}.darwin-amd64")
+          if [ -n "$SHA_DARWIN_AMD64" ]; then
+            echo "    darwin_amd64: $SHA_DARWIN_AMD64" >> release.yaml
           fi
-          
+
           # Add signature if private key is available
           if [ -n "${{ secrets.GHUP_PRIVATE_KEY }}" ]; then
             SIGNATURE=$(openssl dgst -sha256 -sign <(echo "${{ secrets.GHUP_PRIVATE_KEY }}") release.yaml | base64 -w 0 | tr '+/' '-_' | tr -d '=')

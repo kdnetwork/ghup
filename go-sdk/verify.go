@@ -39,7 +39,9 @@ func (u *UpdateContent) Verify() error {
 	}
 
 	if u.CustomVerify != nil {
-		return u.CustomVerify(u, int(VerifyLocationAfterDownload))
+		if err := u.CustomVerify(u, int(VerifyLocationAfterDownload)); err != nil {
+			return err
+		}
 	}
 
 	return nil
