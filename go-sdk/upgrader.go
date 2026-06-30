@@ -86,6 +86,9 @@ type ReleaseInfoStruct struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	PublishedAt time.Time `json:"published_at"`
+	Draft       bool      `json:"draft"`
+	Immutable   bool      `json:"immutable"`
+	Prerelease  bool      `json:"prerelease"`
 	Assets      []struct {
 		URL                string    `json:"url"`
 		ID                 int       `json:"id"`
@@ -100,67 +103,66 @@ type ReleaseInfoStruct struct {
 	Body string `json:"body"`
 }
 
-func (u *UpdateContent) Upgrade2(tagName string) error {
-	_os := runtime.GOOS
-	_arch := runtime.GOARCH
-
-	if !Supported() {
-		return fmt.Errorf("not support (%s/%s)", runtime.GOOS, runtime.GOARCH)
-	} else if _, err := url.Parse(u.APIPrefix + "/releases/tags/"); err != nil {
-		return errors.New("invalid uri")
-	}
-
-	if u.CustomVerify != nil {
-		if err := u.CustomVerify(u, int(VerifyLocationBeforeCheck)); err != nil {
-			return err
-		}
-	}
-
-	// pre check tagName
+func (u *UpdateContent) UpdateReleaseInfo(tagName string) error {
 	if tagName == "" {
 		// get info
 		_, releasesBody, err := u.Fetch(u.APIPrefix+"/releases?per_page=1", http.MethodGet, nil, DefaultHeaderMap)
+		if err != nil {
+			return err
+		}
 
-		var releasesList []ReleaseInfoStruct
-
+		var releasesList []*ReleaseInfoStruct
 		err = json.Unmarshal(releasesBody, &releasesList)
 		if err != nil {
 			return err
 		}
 
 		if len(releasesList) > 0 {
-			u.Asset.Info = &releasesList[0]
-			tagName = u.Asset.Info.TagName
+			u.Asset.Info = releasesList[0]
+			return nil
 		}
-
-	} else {
-		// get info
-		_, tagBody, err := u.Fetch(u.APIPrefix+"/releases/tags/"+tagName, http.MethodGet, nil, DefaultHeaderMap)
-
-		var tagInfo ReleaseInfoStruct
-		err = json.Unmarshal(tagBody, &tagInfo)
-		if err != nil {
-			return err
-		}
-
-		u.Asset.Info = &tagInfo
-		if u.Asset.Info.TagName != tagName {
-			return errors.New("invalid version")
-		}
+		return errors.New("no releases found")
 	}
 
-	if u.Asset.Info == nil || len(u.Asset.Info.Assets) == 0 {
+	// get info by tagName
+	_, tagBody, err := u.Fetch(u.APIPrefix+"/releases/tags/"+tagName, http.MethodGet, nil, DefaultHeaderMap)
+	if err != nil {
+		return err
+	}
+
+	var tagInfo ReleaseInfoStruct
+	err = json.Unmarshal(tagBody, &tagInfo)
+	if err != nil {
+		return err
+	}
+
+	if tagInfo.TagName != tagName {
+		return errors.New("invalid version")
+	}
+
+	u.Asset.Info = &tagInfo
+
+	return nil
+}
+
+func (u *UpdateContent) DownloadAsset() error {
+	_os := runtime.GOOS
+	_arch := runtime.GOARCH
+
+	info := u.Asset.Info
+
+	if info == nil || len(info.Assets) == 0 {
 		return errors.New("no asset")
 	}
 
 	// find binary
-	binName := tagName + "." + _os + "-" + _arch
+	binName := info.TagName + "." + _os + "-" + _arch
 
 	if _os == "windows" {
 		binName += ".exe"
 	}
 
-	for _, asset := range u.Asset.Info.Assets {
+	for _, asset := range info.Assets {
 		if asset.Name == binName {
 			u.Asset.URL = u.APIPrefix + "/releases/assets/" + strconv.Itoa(asset.ID)
 			u.Asset.Hash = strings.TrimSpace(strings.ReplaceAll(asset.Digest, "sha256:", ""))
@@ -192,6 +194,31 @@ func (u *UpdateContent) Upgrade2(tagName string) error {
 		slog.Int("duration", int(duration.Seconds())),
 		slog.String("avg-speed", FormatSpeedMB(int64(len(u.Asset.Binary)), duration)),
 	))
+
+	return nil
+}
+
+func (u *UpdateContent) Upgrade2(tagName string) error {
+	if !Supported() {
+		return fmt.Errorf("not support (%s/%s)", runtime.GOOS, runtime.GOARCH)
+	} else if _, err := url.Parse(u.APIPrefix + "/releases/tags/"); err != nil {
+		return errors.New("invalid uri")
+	}
+
+	if u.CustomVerify != nil {
+		if err := u.CustomVerify(u, int(VerifyLocationBeforeCheck)); err != nil {
+			return err
+		}
+	}
+
+	err := u.UpdateReleaseInfo(tagName)
+	if err != nil {
+		return err
+	}
+
+	if err := u.DownloadAsset(); err != nil {
+		return err
+	}
 
 	return u.Verify()
 }
