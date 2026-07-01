@@ -12,7 +12,7 @@ on:
       cert_path:
         description: "Path to save cacert.pem (empty to skip download)"
         type: string
-        default: "/assets/certs/cacert.pem"
+        default: ""
       go_mod_dir:
         description: "Directory containing go.mod (e.g., '.', './go', './server')"
         type: string
@@ -45,6 +45,9 @@ on:
         description: "Publish as prerelease"
         type: boolean
         default: false
+  # push:
+  #   branches:
+  #     - master
 
 concurrency:
   group: build-all-${{ github.ref }}
@@ -55,6 +58,18 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   GOVERSION: "1.25.6"
+  # Mapping inputs to env vars for compatibility with multiple events
+  # Priority: Manual Input > GitHub Repository Variables > Workflow Defaults
+  RELEASE_PREFIX: ${{ inputs.release_prefix || vars.RELEASE_PREFIX || 'release' }}
+  CERT_PATH: ${{ inputs.cert_path || vars.CERT_PATH || '' }}
+  GO_MOD_DIR: ${{ inputs.go_mod_dir || vars.GO_MOD_DIR || '.' }}
+  GO_MAIN_DIR: ${{ inputs.go_main_dir || vars.GO_MAIN_DIR || '.' }}
+  VERSION_TAG_PREFIX: ${{ inputs.version_tag_prefix || vars.VERSION_TAG_PREFIX || '' }}
+  BUILD_WINDOWS: ${{ format('{0}', inputs.build_windows || vars.BUILD_WINDOWS || 'false') }}
+  BUILD_DARWIN: ${{ format('{0}', inputs.build_darwin || vars.BUILD_DARWIN || 'false') }}
+  BUILD_DOCKER: ${{ format('{0}', inputs.build_docker || vars.BUILD_DOCKER || 'false') }}
+  CREATE_RELEASE: ${{ format('{0}', inputs.create_release || vars.CREATE_RELEASE || 'true') }}
+  PRERELEASE: ${{ format('{0}', inputs.prerelease || vars.PRERELEASE || 'false') }}
 
 jobs:
   setup-version:
@@ -81,7 +96,7 @@ jobs:
           echo "build_at=${build_at}" >> "$GITHUB_OUTPUT"
           
           # Try to get latest semver tag with optional prefix (for monorepo)
-          tag_prefix="${{ inputs.version_tag_prefix }}"
+          tag_prefix="${{ env.VERSION_TAG_PREFIX }}"
           tag_pattern="${tag_prefix}v[0-9]*"
           latest_tag=$(git describe --tags --match "${tag_pattern}" --abbrev=0 2>/dev/null || echo "")
 
@@ -93,13 +108,13 @@ jobs:
           if [ -z "$latest_tag" ]; then
             # No semver tag found, generate new one
             short_commit=${commit_hash:0:7}
-            version_tag="${{ inputs.release_prefix }}.$(date +%Y%m%d).${short_commit}"
+            version_tag="${{ env.RELEASE_PREFIX }}.$(date +%Y%m%d).${short_commit}"
             file_prefix="${version_tag}"
             is_semver="false"
           else
             # Use existing semver tag
             version_tag="${latest_tag}"
-            file_prefix="${{ inputs.release_prefix }}.${latest_tag}"
+            file_prefix="${{ env.RELEASE_PREFIX }}.${latest_tag}"
             is_semver="true"
           fi
 
@@ -108,23 +123,23 @@ jobs:
           echo "is_semver=${is_semver}" >> "$GITHUB_OUTPUT"
       
       - name: Download cacert if needed
-        if: ${{ inputs.cert_path != '' }}
+        if: ${{ env.CERT_PATH != '' }}
         run: |
-          cert_dir=$(dirname "${{ inputs.cert_path }}")
+          cert_dir=$(dirname "${{ env.CERT_PATH }}")
           mkdir -p "$cert_dir"
-          curl -o "${{ inputs.cert_path }}" https://curl.se/ca/cacert.pem
+          curl -o "${{ env.CERT_PATH }}" https://curl.se/ca/cacert.pem
       
       - name: Upload cacert
-        if: ${{ inputs.cert_path != '' }}
+        if: ${{ env.CERT_PATH != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: "release.cacert"
-          path: ${{ inputs.cert_path }}
+          path: ${{ env.CERT_PATH }}
 
   release:
     runs-on: ubuntu-latest
     name: Release
-    if: inputs.create_release == true
+    if: env.CREATE_RELEASE == 'true'
     permissions:
       contents: write
     needs:
@@ -143,21 +158,21 @@ jobs:
           merge-multiple: true
 
       - name: Download Windows binary
-        if: inputs.build_windows == true
+        if: env.BUILD_WINDOWS == 'true'
         uses: actions/download-artifact@v8
         with:
           name: release-windows
           path: build
       
       - name: Download macOS binaries
-        if: inputs.build_darwin == true
+        if: env.BUILD_DARWIN == 'true'
         uses: actions/download-artifact@v8
         with:
           name: release-darwin
           path: build
       
       - name: Download cacert
-        if: inputs.cert_path != ''
+        if: env.CERT_PATH != ''
         uses: actions/download-artifact@v8
         with:
           name: release.cacert
@@ -193,7 +208,7 @@ jobs:
           commit_hash: ${{ env.COMMIT_HASH }}
           version: ${{ env.VERSION_TAG }}
           publish_type: binary
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ env.PRERELEASE }}
           sha256:
           YAML_EOF
           
@@ -256,7 +271,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: build/*
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ env.PRERELEASE == 'true' }}
           fail_on_unmatched_files: false
           tag_name: ${{ needs.setup-version.outputs.version_tag }}
           body_path: build/release.body.md
@@ -281,7 +296,7 @@ jobs:
         uses: actions/checkout@v6
       
       - name: Download cacert
-        if: inputs.cert_path != ''
+        if: env.CERT_PATH != ''
         uses: actions/download-artifact@v8
         with:
           name: release.cacert
@@ -297,9 +312,9 @@ jobs:
       
       - name: Build
         run: |
-          cd "${{ inputs.go_mod_dir }}"
+          cd "${{ env.GO_MOD_DIR }}"
           ldflags="-s -w -linkmode external -extldflags -static"
-          CC=${{ matrix.arch.compiler }} go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.linux-${{ matrix.arch.name }}" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
+          CC=${{ matrix.arch.compiler }} go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.linux-${{ matrix.arch.name }}" -ldflags "$ldflags" -tags netgo "${{ env.GO_MAIN_DIR }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -310,7 +325,7 @@ jobs:
   build-darwin-binary:
     name: Build Binary for macOS
     runs-on: macos-latest
-    if: inputs.build_darwin == true
+    if: env.BUILD_DARWIN == 'true'
     needs: setup-version
     env:
       file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
@@ -319,7 +334,7 @@ jobs:
         uses: actions/checkout@v6
       
       - name: Download cacert
-        if: inputs.cert_path != ''
+        if: env.CERT_PATH != ''
         uses: actions/download-artifact@v8
         with:
           name: release.cacert
@@ -332,11 +347,11 @@ jobs:
       
       - name: Build
         run: |
-          cd "${{ inputs.go_mod_dir }}"
+          cd "${{ env.GO_MOD_DIR }}"
           ldflags="-s -w"
           
-          GOOS=darwin GOARCH=arm64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-arm64" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
-          GOOS=darwin GOARCH=amd64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-amd64" -ldflags "$ldflags" -tags netgo "${{ inputs.go_main_dir }}"
+          GOOS=darwin GOARCH=arm64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-arm64" -ldflags "$ldflags" -tags netgo "${{ env.GO_MAIN_DIR }}"
+          GOOS=darwin GOARCH=amd64 go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.darwin-amd64" -ldflags "$ldflags" -tags netgo "${{ env.GO_MAIN_DIR }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -348,7 +363,7 @@ jobs:
   build-windows-binary:
     name: Build Binary for Windows
     runs-on: windows-latest
-    if: inputs.build_windows == true
+    if: env.BUILD_WINDOWS == 'true'
     needs: setup-version
     env:
       file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
@@ -357,7 +372,7 @@ jobs:
         uses: actions/checkout@v6
       
       - name: Download cacert
-        if: inputs.cert_path != ''
+        if: env.CERT_PATH != ''
         uses: actions/download-artifact@v8
         with:
           name: release.cacert
@@ -370,9 +385,9 @@ jobs:
       
       - name: Build
         run: |
-          cd "${{ inputs.go_mod_dir }}"
+          cd "${{ env.GO_MOD_DIR }}"
           $ldflags="-s -w"
-          go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.windows-amd64.exe" -ldflags $ldflags -tags netgo "${{ inputs.go_main_dir }}"
+          go build -trimpath -o "${{ github.workspace }}/${{ env.file_prefix }}.windows-amd64.exe" -ldflags $ldflags -tags netgo "${{ env.GO_MAIN_DIR }}"
 
       - name: Upload package
         uses: actions/upload-artifact@v7
@@ -383,7 +398,7 @@ jobs:
   combine-docker:
     name: Docker Build
     runs-on: ubuntu-24.04
-    if: inputs.build_docker == true
+    if: env.BUILD_DOCKER == 'true'
     permissions:
       contents: read
       packages: write
@@ -431,7 +446,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest
             type=raw,value={{date 'YYYYMMDD'}}
-            type=raw,value=release,enable=${{ !inputs.prerelease }}
+            type=raw,value=release,enable=${{ env.PRERELEASE != 'true' }}
 
       - name: Buildx
         uses: docker/build-push-action@v7
