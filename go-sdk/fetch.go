@@ -26,7 +26,7 @@ var useFormMethods = []string{http.MethodPost, http.MethodPut, http.MethodPatch}
 
 var DefaultHeaderMap = make(map[string]string, 0)
 
-func (u UpdateContent) Fetch(_url string, _method string, _body []byte, _headers map[string]string) (*http.Response, []byte, error) {
+func (u *UpdateContent) Fetch(_url string, _method string, _body []byte, _headers map[string]string) (*http.Response, []byte, error) {
 	var body io.Reader
 
 	if len(_body) > 0 {

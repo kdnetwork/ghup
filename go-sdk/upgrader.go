@@ -145,7 +145,7 @@ func (u *UpdateContent) UpdateReleaseInfo(tagName string) error {
 	return nil
 }
 
-func (u *UpdateContent) DownloadAsset() error {
+func (u *UpdateContent) MatchAsset() error {
 	_os := runtime.GOOS
 	_arch := runtime.GOARCH
 
@@ -180,6 +180,14 @@ func (u *UpdateContent) DownloadAsset() error {
 		}
 	}
 
+	return nil
+}
+
+func (u *UpdateContent) Download() error {
+	if u.Asset.URL == "" {
+		return errors.New("asset URL not found, call MatchAsset first")
+	}
+
 	// get binary
 	since := time.Now()
 	binaryHeaderMap := maps.Clone(DefaultHeaderMap)
@@ -196,6 +204,13 @@ func (u *UpdateContent) DownloadAsset() error {
 	))
 
 	return nil
+}
+
+func (u *UpdateContent) DownloadAsset() error {
+	if err := u.MatchAsset(); err != nil {
+		return err
+	}
+	return u.Download()
 }
 
 func (u *UpdateContent) Upgrade2(tagName string) error {
