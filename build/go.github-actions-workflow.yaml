@@ -40,7 +40,7 @@ on:
       create_release:
         description: "Create GitHub Release"
         type: boolean
-        default: true
+        default: false
       prerelease:
         description: "Publish as prerelease"
         type: boolean
@@ -65,11 +65,6 @@ env:
   GO_MOD_DIR: ${{ inputs.go_mod_dir || vars.GO_MOD_DIR || '.' }}
   GO_MAIN_DIR: ${{ inputs.go_main_dir || vars.GO_MAIN_DIR || '.' }}
   VERSION_TAG_PREFIX: ${{ inputs.version_tag_prefix || vars.VERSION_TAG_PREFIX || '' }}
-  BUILD_WINDOWS: ${{ format('{0}', inputs.build_windows || vars.BUILD_WINDOWS || 'false') }}
-  BUILD_DARWIN: ${{ format('{0}', inputs.build_darwin || vars.BUILD_DARWIN || 'false') }}
-  BUILD_DOCKER: ${{ format('{0}', inputs.build_docker || vars.BUILD_DOCKER || 'false') }}
-  CREATE_RELEASE: ${{ format('{0}', inputs.create_release || vars.CREATE_RELEASE || 'true') }}
-  PRERELEASE: ${{ format('{0}', inputs.prerelease || vars.PRERELEASE || 'false') }}
 
 jobs:
   setup-version:
@@ -81,6 +76,11 @@ jobs:
       is_semver: ${{ steps.version.outputs.is_semver }}
       commit_hash: ${{ steps.version.outputs.commit_hash }}
       build_at: ${{ steps.version.outputs.build_at }}
+      BUILD_WINDOWS: ${{ format('{0}', inputs.build_windows || vars.BUILD_WINDOWS || 'false') }}
+      BUILD_DARWIN: ${{ format('{0}', inputs.build_darwin || vars.BUILD_DARWIN || 'false') }}
+      BUILD_DOCKER: ${{ format('{0}', inputs.build_docker || vars.BUILD_DOCKER || 'false') }}
+      CREATE_RELEASE: ${{ format('{0}', inputs.create_release || vars.CREATE_RELEASE || 'false') }}
+      PRERELEASE: ${{ format('{0}', inputs.prerelease || vars.PRERELEASE || 'false') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -139,7 +139,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     name: Release
-    if: env.CREATE_RELEASE == 'true'
+    if: needs.setup-version.outputs.CREATE_RELEASE == 'true'
     permissions:
       contents: write
     needs:
@@ -158,14 +158,14 @@ jobs:
           merge-multiple: true
 
       - name: Download Windows binary
-        if: env.BUILD_WINDOWS == 'true'
+        if: needs.setup-version.outputs.BUILD_WINDOWS == 'true'
         uses: actions/download-artifact@v8
         with:
           name: release-windows
           path: build
       
       - name: Download macOS binaries
-        if: env.BUILD_DARWIN == 'true'
+        if: needs.setup-version.outputs.BUILD_DARWIN == 'true'
         uses: actions/download-artifact@v8
         with:
           name: release-darwin
@@ -177,7 +177,7 @@ jobs:
         with:
           name: release.cacert
           path: build
-      
+
       - name: Generate checksums
         env:
           FILE_PREFIX: ${{ needs.setup-version.outputs.file_prefix }}
@@ -200,7 +200,7 @@ jobs:
           FILE_PREFIX: ${{ needs.setup-version.outputs.file_prefix }}
         run: |
           cd build
-          
+
           # Create release.yaml with basic info
           cat > release.yaml <<'YAML_EOF'
           build_version: ${{ env.GOVERSION }}
@@ -208,13 +208,13 @@ jobs:
           commit_hash: ${{ env.COMMIT_HASH }}
           version: ${{ env.VERSION_TAG }}
           publish_type: binary
-          prerelease: ${{ env.PRERELEASE }}
+          prerelease: ${{ needs.setup-version.outputs.PRERELEASE == 'true' }}
           sha256:
           YAML_EOF
-          
+
           # Add sha256 values for enabled platforms
           SHA256_FILE="${FILE_PREFIX}.sha256.txt"
-          
+
           function get_sha256() {
             local pattern=$1
             if [ -f "$SHA256_FILE" ]; then
@@ -266,12 +266,12 @@ jobs:
           MD_EOF
 
           cd -
-      
+
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
           files: build/*
-          prerelease: ${{ env.PRERELEASE == 'true' }}
+          prerelease: ${{ needs.setup-version.outputs.PRERELEASE == 'true' }}
           fail_on_unmatched_files: false
           tag_name: ${{ needs.setup-version.outputs.version_tag }}
           body_path: build/release.body.md
@@ -309,7 +309,7 @@ jobs:
       
       - name: Install musl libc
         run: sudo apt install -y musl-dev
-      
+
       - name: Build
         run: |
           cd "${{ env.GO_MOD_DIR }}"
@@ -325,7 +325,7 @@ jobs:
   build-darwin-binary:
     name: Build Binary for macOS
     runs-on: macos-latest
-    if: env.BUILD_DARWIN == 'true'
+    if: needs.setup-version.outputs.BUILD_DARWIN == 'true'
     needs: setup-version
     env:
       file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
@@ -363,7 +363,7 @@ jobs:
   build-windows-binary:
     name: Build Binary for Windows
     runs-on: windows-latest
-    if: env.BUILD_WINDOWS == 'true'
+    if: needs.setup-version.outputs.BUILD_WINDOWS == 'true'
     needs: setup-version
     env:
       file_prefix: ${{ needs.setup-version.outputs.file_prefix }}
@@ -398,7 +398,7 @@ jobs:
   combine-docker:
     name: Docker Build
     runs-on: ubuntu-24.04
-    if: env.BUILD_DOCKER == 'true'
+    if: needs.setup-version.outputs.BUILD_DOCKER == 'true'
     permissions:
       contents: read
       packages: write
@@ -446,7 +446,7 @@ jobs:
             type=ref,event=branch
             type=raw,value=latest
             type=raw,value={{date 'YYYYMMDD'}}
-            type=raw,value=release,enable=${{ env.PRERELEASE != 'true' }}
+            type=raw,value=release,enable=${{ needs.setup-version.outputs.PRERELEASE != 'true' }}
 
       - name: Buildx
         uses: docker/build-push-action@v7
