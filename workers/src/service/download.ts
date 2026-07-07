@@ -10,6 +10,7 @@ const release = new Hono<apiVar>()
 
 release.get('/download/:tag/:file_name', async (c) => {
   const repo = c.get('repo')
+  const cache = caches.default
 
   if (repo?.rules?.releases?.verify) {
     if (!ApplyRule(repo.rules.releases.verify, c)) {
@@ -23,7 +24,17 @@ release.get('/download/:tag/:file_name', async (c) => {
   }
 
   // https://github.com/{name}/{repo}/releases/download/{tag}/{file}
-  const assetURL = `https://github.com/${repo.namespace}/releases/download/${tag}/${file_name}`
+  let assetURL = `https://github.com/${repo.namespace}/releases/download/${tag}/${file_name}`
+  const cacheKey = assetURL + '#cache-key'
+  let cached = false
+
+  try {
+    const cachedAssetURL = await cache.match(cacheKey)
+    if (cachedAssetURL) {
+      assetURL = await cachedAssetURL.text()
+      cached = true
+    }
+  } catch {}
 
   const upstream = await fetch(assetURL, {
     headers: {
@@ -38,10 +49,44 @@ release.get('/download/:tag/:file_name', async (c) => {
   const accepted = upstream.status >= 200 && upstream.status < 300
 
   if (accepted) {
+    if (!cached) {
+      try {
+        const parsedURL = new URL(upstream.url)
+
+        // parse jwt
+        const jwtData = JSON.parse(
+          atob(
+            ((parsedURL.searchParams.get('jwt') || '').split('.')?.[1] || '')
+              .replaceAll('_', '/')
+              .replaceAll('-', '+'),
+          ),
+        )
+
+        c.executionCtx.waitUntil(
+          cache.put(
+            cacheKey,
+            new Response(upstream.url, {
+              headers: {
+                'Cache-Control':
+                  'max-age=' +
+                  Math.max(
+                    0,
+                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 60,
+                  ), // 30mins
+              },
+            }),
+          ),
+        )
+      } catch {}
+    }
+
     return c.newResponse(
       upstream.body,
       upstream.status as ContentfulStatusCode,
-      Object.fromEntries(SafeHeader(upstream.headers).entries()),
+      {
+        ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
+        ...{ 'X-GHUP-Link-Cache': cached ? 'cached' : 'miss' },
+      },
     )
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)

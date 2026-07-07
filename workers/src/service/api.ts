@@ -141,6 +141,7 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
 
 apiHandle.get('/releases/assets/:asset_id', async (c) => {
   const repo = c.get('repo')
+  const cache = caches.default
 
   if (repo?.rules?.releases?.verify) {
     if (!ApplyRule(repo.rules.releases.verify, c)) {
@@ -154,11 +155,24 @@ apiHandle.get('/releases/assets/:asset_id', async (c) => {
   }
 
   // // https://api.github.com/repos/OWNER/REPO/releases/assets/ASSET_ID
-  const assetURL = `https://api.github.com/repos/${repo.namespace}/releases/assets/${asset_id}`
+  let assetURL = `https://api.github.com/repos/${repo.namespace}/releases/assets/${asset_id}`
+  const cacheKey = assetURL + '#cache-key'
 
   const accept = 'application/octet-stream' //c.req.header('accept') || 'application/octet-stream'
 
   const isAsset = accept === 'application/octet-stream'
+  let cached = false
+
+  // file mode
+  if (isAsset) {
+    try {
+      const cachedAssetURL = await cache.match(cacheKey)
+      if (cachedAssetURL) {
+        assetURL = await cachedAssetURL.text()
+        cached = true
+      }
+    } catch {}
+  }
 
   const upstream = await fetch(assetURL, {
     headers: {
@@ -166,7 +180,8 @@ apiHandle.get('/releases/assets/:asset_id', async (c) => {
       range: c.req.header('range') || '',
       accept,
 
-      ...(repo.access_token &&
+      ...(!cached &&
+      repo.access_token &&
       (isAsset ? repo.rules?.releases?.auth : repo.rules?.api?.auth)
         ? { Authorization: 'Bearer ' + repo.access_token }
         : {}),
@@ -178,10 +193,44 @@ apiHandle.get('/releases/assets/:asset_id', async (c) => {
   const accepted = upstream.status >= 200 && upstream.status < 300
 
   if (accepted) {
+    if (!cached && isAsset) {
+      try {
+        const parsedURL = new URL(upstream.url)
+
+        // parse jwt
+        const jwtData = JSON.parse(
+          atob(
+            ((parsedURL.searchParams.get('jwt') || '').split('.')?.[1] || '')
+              .replaceAll('_', '/')
+              .replaceAll('-', '+'),
+          ),
+        )
+
+        c.executionCtx.waitUntil(
+          cache.put(
+            cacheKey,
+            new Response(upstream.url, {
+              headers: {
+                'Cache-Control':
+                  'max-age=' +
+                  Math.max(
+                    0,
+                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 60,
+                  ), // 5mins
+              },
+            }),
+          ),
+        )
+      } catch {}
+    }
+
     return c.newResponse(
       upstream.body,
       upstream.status as ContentfulStatusCode,
-      Object.fromEntries(SafeHeader(upstream.headers).entries()),
+      {
+        ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
+        ...{ 'X-GHUP-Link-Cache': cached ? 'cached' : 'miss' },
+      },
     )
   } else {
     return c.text('', upstream.status as ContentfulStatusCode)
