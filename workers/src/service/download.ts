@@ -85,7 +85,7 @@ release.get('/download/:tag/:file_name', async (c) => {
       upstream.status as ContentfulStatusCode,
       {
         ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
-        ...{ 'X-GHUP-Link-Cache': cached ? 'cached' : 'miss' },
+        ...{ 'x-link-cache': cached ? 'HIT' : 'MISS' },
       },
     )
   } else {
