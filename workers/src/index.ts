@@ -18,12 +18,23 @@ ghup.use(async (c, next) => {
   const repo = c.req.param('repo') || ''
 
   try {
-    const repoItem = (JSON.parse(env.REPOS || '[]') as RepoItem[]).find(
+    let repoItem = (JSON.parse(env.REPOS || '[]') as RepoItem[]).find(
       (x) => x.namespace.toLowerCase() === (name + '/' + repo).toLowerCase(),
     )
 
-    if (!repoItem) {
-      return c.text('', 404)
+    if (!repoItem?.namespace) {
+      // find single env var
+      const repoenv = env['repoenv-' + (name + '--' + repo).toLowerCase()]
+
+      if (!repoenv) {
+        return c.text('', 404)
+      }
+
+      repoItem = JSON.parse(repoenv)
+
+      if (!repoItem?.namespace) {
+        return c.text('', 404)
+      }
     }
 
     c.set('repo', repoItem)
