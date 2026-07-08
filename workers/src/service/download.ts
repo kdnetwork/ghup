@@ -71,7 +71,7 @@ release.get('/download/:tag/:file_name', async (c) => {
                   'max-age=' +
                   Math.max(
                     0,
-                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 60,
+                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 10,
                   ), // 30mins
               },
             }),

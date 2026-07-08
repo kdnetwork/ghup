@@ -2,10 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "ghup-server",
   "main": "src/index.ts",
-  "compatibility_date": "2026-06-02",
+  "compatibility_date": "2026-07-07",
   "placement": {
     "mode": "smart"
   },
+  "cache": { "enabled": true },
   "kv_namespaces": [
     {
       "binding": "KV",

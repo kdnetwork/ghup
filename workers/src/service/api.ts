@@ -28,6 +28,10 @@ apiHandle.get('/releases', async (c) => {
   if (value) {
     return c.json(JSON.parse(value).slice(0, count), 200, {
       'x-cache': 'HIT',
+      'cache-control':
+        'public, max-age=' +
+        ReleaseListCacheMaxAge +
+        ', stale-while-revalidate=60',
       'content-type': 'application/json; charset=utf-8',
     })
   }
@@ -74,14 +78,26 @@ apiHandle.get('/releases', async (c) => {
       releases.slice(0, count),
       upstream.status as ContentfulStatusCode,
       {
-        'x-cache': 'MISS',
-        'content-type': 'application/json; charset=utf-8',
+        ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
+        ...{
+          'cache-control':
+            'public, max-age=' +
+            ReleaseListCacheMaxAge +
+            ', stale-while-revalidate=60',
+          'x-cache': 'MISS',
+        },
       },
     )
   } else {
     return c.json([], upstream.status as ContentfulStatusCode, {
-      'x-cache': 'MISS',
-      'content-type': 'application/json; charset=utf-8',
+      ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
+      ...{
+        'cache-control':
+          'public, max-age=' +
+          ReleaseListCacheMaxAge +
+          ', stale-while-revalidate=60',
+        'x-cache': 'MISS',
+      },
     })
   }
 })
@@ -134,8 +150,14 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
   }
 
   return c.json(JSON.parse(body), upstream.status as ContentfulStatusCode, {
-    'x-cache': 'MISS',
-    'content-type': 'application/json; charset=utf-8',
+    ...Object.fromEntries(SafeHeader(upstream.headers).entries()),
+    ...{
+      'cache-control':
+        'public, max-age=' +
+        ReleaseInfoCacheMaxAge +
+        ', stale-while-revalidate=60',
+      'x-cache': 'MISS',
+    },
   })
 })
 
@@ -215,7 +237,7 @@ apiHandle.get('/releases/assets/:asset_id', async (c) => {
                   'max-age=' +
                   Math.max(
                     0,
-                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 60,
+                    (jwtData.exp ?? 0) - Math.floor(Date.now() / 1000) - 10,
                   ), // 5mins
               },
             }),
@@ -239,6 +261,7 @@ apiHandle.get('/releases/assets/:asset_id', async (c) => {
 
 apiHandle.get('/:archiveType{zipball|tarball}/:archiveTag', async (c) => {
   const repo = c.get('repo')
+  const cache = caches.default
 
   const { archiveType, archiveTag } = c.req.param()
 
@@ -251,7 +274,18 @@ apiHandle.get('/:archiveType{zipball|tarball}/:archiveTag', async (c) => {
   // 6 https://api.github.com/repos/{name}/{repo}/tarball/{tag|branch}
   // 7 https://api.github.com/repos/{name}/{repo}/zipball/{tag|branch}
 
-  const assetURL = `https://api.github.com/repos/${repo.namespace}/${archiveType}/${archiveTag}`
+  let assetURL = `https://api.github.com/repos/${repo.namespace}/${archiveType}/${archiveTag}`
+  const cacheKey = assetURL
+  let cached = false
+  const privateRepo = repo.access_token && repo.rules?.archive?.auth
+
+  try {
+    const cachedAssetURL = await cache.match(assetURL)
+    if (cachedAssetURL) {
+      assetURL = await cachedAssetURL.text()
+      cached = true
+    }
+  } catch {}
 
   const upstream = await fetch(assetURL, {
     headers: {
@@ -259,9 +293,7 @@ apiHandle.get('/:archiveType{zipball|tarball}/:archiveTag', async (c) => {
       range: c.req.header('range') || '',
       accept: c.req.header('accept') || '*/*',
 
-      ...(repo.access_token && repo.rules?.archive?.auth
-        ? { Authorization: 'Bearer ' + repo.access_token }
-        : {}),
+      ...(privateRepo ? { Authorization: 'Bearer ' + repo.access_token } : {}),
     },
     method: 'get',
     redirect: 'follow',
@@ -270,6 +302,19 @@ apiHandle.get('/:archiveType{zipball|tarball}/:archiveTag', async (c) => {
   const accepted = upstream.status >= 200 && upstream.status < 300
 
   if (accepted) {
+    if (!cached) {
+      c.executionCtx.waitUntil(
+        cache.put(
+          cacheKey,
+          new Response(upstream.url, {
+            headers: {
+              'Cache-Control': 'max-age=290', // 5mins
+            },
+          }),
+        ),
+      )
+    }
+
     return c.newResponse(
       upstream.body,
       upstream.status as ContentfulStatusCode,
