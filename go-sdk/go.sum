@@ -1,4 +1,2 @@
-github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
-github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/kdnetwork/code-snippet/go v0.0.0-20260427075611-cd63e74ad063 h1:j4AuZjWo1OZR/wHagwRRPuGwq9I5RTEZzgJVf2GyyZ4=
 github.com/kdnetwork/code-snippet/go v0.0.0-20260427075611-cd63e74ad063/go.mod h1:d4tLK7wXdGfMq5ASEx5j9f0TaP5s1d9HTVyqxGafG4s=

@@ -7,15 +7,19 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
-
-	"github.com/google/uuid"
+	"time"
 )
 
 func (u *UpdateContent) Save(restart bool) error {
 	// Path to the new tagName temporary file
-	tmpUUID := uuid.New().String()
-	tmpPath := filepath.Join(filepath.Dir(u.System.ExePath), "."+tmpUUID+"_ghup_asset.tmp")
+	now := strconv.Itoa(int(time.Now().UnixMilli()))
+	fileName := u.Asset.Name
+	if fileName == "" {
+		fileName = "ghup_asset.tmp"
+	}
+	tmpPath := filepath.Join(filepath.Dir(u.System.ExePath), "."+now+"_"+fileName)
 
 	if err := os.WriteFile(tmpPath, u.Asset.Binary, 0o644); err != nil {
 		return err

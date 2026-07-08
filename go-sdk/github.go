@@ -110,6 +110,7 @@ func (u *UpdateContent) MatchAsset() error {
 			u.Asset.URL = u.APIPrefix + "/releases/assets/" + strconv.Itoa(asset.ID)
 			u.Asset.Hash = strings.TrimSpace(strings.ReplaceAll(asset.Digest, "sha256:", ""))
 			u.Asset.Size = asset.Size
+			u.Asset.Name = asset.Name
 			break
 		}
 	}

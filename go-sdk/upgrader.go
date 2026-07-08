@@ -48,6 +48,7 @@ type UpdateContent struct {
 	Asset struct {
 		Info   *ReleaseInfoStruct
 		Binary []byte
+		Name   string
 		Hash   string
 		Size   int
 		URL    string
