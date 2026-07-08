@@ -42,6 +42,9 @@ webhook.post('/:hook_type', async (c) => {
           const cacheKey = repo.namespace + ':tag:' + tagName
           if (['deleted', 'unpublished'].includes(payload.action)) {
             c.executionCtx.waitUntil(env.KV.delete(cacheKey))
+            c.executionCtx.waitUntil(
+              env.KV.delete(repo.namespace + ':releaseslist'),
+            )
           } else if (payload.action !== 'published') {
             return c.text('', 200)
           } else {

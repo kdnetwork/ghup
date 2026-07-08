@@ -27,7 +27,7 @@ apiHandle.get('/releases', async (c) => {
   const value = await env.KV.get(cacheKey)
   if (value) {
     return c.json(JSON.parse(value).slice(0, count), 200, {
-      'x-cache': 'HIT',
+      'x-kv-cache': 'HIT',
       'cache-control':
         'public, max-age=' +
         ReleaseListCacheMaxAge +
@@ -84,7 +84,7 @@ apiHandle.get('/releases', async (c) => {
             'public, max-age=' +
             ReleaseListCacheMaxAge +
             ', stale-while-revalidate=60',
-          'x-cache': 'MISS',
+          'x-kv-cache': 'MISS',
         },
       },
     )
@@ -96,7 +96,7 @@ apiHandle.get('/releases', async (c) => {
           'public, max-age=' +
           ReleaseListCacheMaxAge +
           ', stale-while-revalidate=60',
-        'x-cache': 'MISS',
+        'x-kv-cache': 'MISS',
       },
     })
   }
@@ -115,7 +115,11 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
   const value = await env.KV.get(cacheKey)
   if (value) {
     return c.json(JSON.parse(value), 200, {
-      'x-cache': 'HIT',
+      'x-kv-cache': 'HIT',
+      'cache-control':
+        'public, max-age=' +
+        ReleaseInfoCacheMaxAge +
+        ', stale-while-revalidate=60',
       'content-type': 'application/json; charset=utf-8',
     })
   }
@@ -156,7 +160,7 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
         'public, max-age=' +
         ReleaseInfoCacheMaxAge +
         ', stale-while-revalidate=60',
-      'x-cache': 'MISS',
+      'x-kv-cache': 'MISS',
     },
   })
 })
