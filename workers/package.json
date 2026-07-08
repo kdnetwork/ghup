@@ -9,9 +9,9 @@
     "format": "npx prettier \"./**/*.ts\" \"!./**/*.d.ts\" --write --no-semi --single-quote"
   },
   "dependencies": {
-    "hono": "^4.12.23"
+    "hono": "^4.12.28"
   },
   "devDependencies": {
-    "wrangler": "^4.4.0"
+    "wrangler": "^4.107.0"
   }
 }
