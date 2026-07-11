@@ -5,6 +5,8 @@ interface __BaseEnv_CloudflareBindings {
 	KV: KVNamespace;
 	SECRET_PATH: string;
 	REPOS: string;
+
+    [key: string]: string;
 }
 declare namespace Cloudflare {
 	interface GlobalProps {

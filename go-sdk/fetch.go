@@ -175,20 +175,33 @@ func (u *UpdateContent) UpgradeDownloader(_url string, _headers map[string]strin
 			_headers2 := maps.Clone(_headers)
 			_headers2["Range"] = fmt.Sprintf("bytes=%d-%d", c.start, c.end)
 
-			_, data, err := u.Fetch(_url, http.MethodGet, nil, _headers2)
+			for attempt := uint(0); attempt <= u.RangeRetry; attempt++ {
+				_, data, err := u.Fetch(_url, http.MethodGet, nil, _headers2)
 
-			if err != nil {
-				c.err = err
-				return
+				if err == nil {
+					slog.Debug("download status", slog.Group("download",
+						slog.Int("size", len(data)),
+						slog.Int("part", i),
+						slog.String("range", _headers2["Range"]),
+						slog.Uint64("attempt", uint64(attempt+1)),
+					))
+
+					c.data = data
+					return
+				}
+
+				slog.Debug("download failed", slog.Group("download",
+					slog.Int("size", len(data)),
+					slog.Int("part", i),
+					slog.String("range", _headers2["Range"]),
+					slog.Uint64("attempt", uint64(attempt+1)),
+					slog.Uint64("max_attempts", uint64(u.RangeRetry+1)),
+				), "error", err)
+
+				if attempt == u.RangeRetry {
+					c.err = err
+				}
 			}
-
-			slog.Debug("download status", slog.Group("download",
-				slog.Int("size", len(data)),
-				slog.Int("part", i),
-				slog.String("range", _headers2["Range"]),
-			))
-
-			c.data = data
 		}(chunks[i])
 	}
 

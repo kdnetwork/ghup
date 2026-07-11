@@ -29,8 +29,9 @@ type UpdateContent struct {
 	APIPrefix string
 
 	// http requests
-	Headers map[string]string
-	Client  *http.Client
+	Headers    map[string]string
+	Client     *http.Client
+	RangeRetry uint
 
 	// custom verify
 	CustomVerify func(*UpdateContent, int) error
