@@ -64,6 +64,11 @@ webhook.post('/:hook_type', async (c) => {
                 expirationTtl: ReleaseInfoCacheMaxAge,
               }),
             )
+            c.executionCtx.waitUntil(
+              cache.purge({
+                tags: [repo.namespace + ':releaseslist'],
+              }),
+            )
           }
         }
       } catch {
