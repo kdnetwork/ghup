@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { apiVar, ReleaseInfoCacheMaxAge } from '../vars'
-import { env } from 'cloudflare:workers'
+import { env, cache } from 'cloudflare:workers'
 import { VerifySignature } from '../utils/github'
 import { ReplaceValue } from '../utils/rule'
 
@@ -44,6 +44,12 @@ webhook.post('/:hook_type', async (c) => {
             c.executionCtx.waitUntil(env.KV.delete(cacheKey))
             c.executionCtx.waitUntil(
               env.KV.delete(repo.namespace + ':releaseslist'),
+            )
+
+            c.executionCtx.waitUntil(
+              cache.purge({
+                tags: [cacheKey, repo.namespace + ':releaseslist'],
+              }),
             )
           } else if (payload.action !== 'published') {
             return c.text('', 200)

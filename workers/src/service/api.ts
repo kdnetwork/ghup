@@ -33,6 +33,7 @@ apiHandle.get('/releases', async (c) => {
         ReleaseListCacheMaxAge +
         ', stale-while-revalidate=60',
       'content-type': 'application/json; charset=utf-8',
+      'cache-tag': `${cacheKey},${repo.namespace}`,
     })
   }
 
@@ -85,6 +86,7 @@ apiHandle.get('/releases', async (c) => {
             ReleaseListCacheMaxAge +
             ', stale-while-revalidate=60',
           'x-kv-cache': 'MISS',
+          'cache-tag': `${cacheKey},${repo.namespace}`,
         },
       },
     )
@@ -97,6 +99,7 @@ apiHandle.get('/releases', async (c) => {
           ReleaseListCacheMaxAge +
           ', stale-while-revalidate=60',
         'x-kv-cache': 'MISS',
+        'cache-tag': `${cacheKey},${repo.namespace}`,
       },
     })
   }
@@ -121,6 +124,7 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
         ReleaseInfoCacheMaxAge +
         ', stale-while-revalidate=60',
       'content-type': 'application/json; charset=utf-8',
+      'cache-tag': `${cacheKey},${repo.namespace}`,
     })
   }
 
@@ -161,6 +165,7 @@ apiHandle.get('/releases/tags/:tag', async (c) => {
         ReleaseInfoCacheMaxAge +
         ', stale-while-revalidate=60',
       'x-kv-cache': 'MISS',
+      'cache-tag': `${cacheKey},${repo.namespace}`,
     },
   })
 })
